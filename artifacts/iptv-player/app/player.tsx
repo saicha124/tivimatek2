@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { ResizeMode, Video } from "expo-av";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -106,6 +106,106 @@ const scrubStyles = StyleSheet.create({
   },
 });
 
+const SLEEP_OPTIONS = [
+  { label: "Off", minutes: 0 },
+  { label: "15 minutes", minutes: 15 },
+  { label: "30 minutes", minutes: 30 },
+  { label: "60 minutes", minutes: 60 },
+  { label: "90 minutes", minutes: 90 },
+  { label: "2 hours", minutes: 120 },
+];
+
+function SleepTimerModal({
+  visible,
+  activeMinutes,
+  onSelect,
+  onClose,
+  colors,
+}: {
+  visible: boolean;
+  activeMinutes: number;
+  onSelect: (minutes: number) => void;
+  onClose: () => void;
+  colors: ReturnType<typeof useColors>;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={stStyles.overlay}>
+          <TouchableWithoutFeedback>
+            <View style={[stStyles.sheet, { backgroundColor: "#1e1e1e" }]}>
+              <View style={stStyles.header}>
+                <Feather name="moon" size={18} color={colors.primary} />
+                <Text style={[stStyles.title, { color: colors.primary }]}>Sleep Timer</Text>
+              </View>
+              {SLEEP_OPTIONS.map((opt) => {
+                const isActive = opt.minutes === activeMinutes;
+                return (
+                  <TouchableOpacity
+                    key={opt.label}
+                    style={[
+                      stStyles.row,
+                      { borderBottomColor: "rgba(255,255,255,0.08)" },
+                      isActive && { backgroundColor: "rgba(33,150,243,0.12)" },
+                    ]}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      onSelect(opt.minutes);
+                    }}
+                  >
+                    <Text style={[stStyles.optLabel, { color: isActive ? colors.primary : "#fff" }]}>
+                      {opt.label}
+                    </Text>
+                    {isActive && <Feather name="check" size={18} color={colors.primary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+}
+
+const stStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 14,
+    paddingBottom: 36,
+    paddingHorizontal: 20,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 4,
+    borderRadius: 6,
+  },
+  optLabel: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+  },
+});
+
 interface ToolbarItem {
   icon: keyof typeof Feather.glyphMap;
   label: string;
@@ -120,6 +220,8 @@ function PlayerToolbar({
   onClose,
   onMultiview,
   onPiP,
+  onSleepTimer,
+  sleepActive,
   colors,
   bottomPad,
 }: {
@@ -127,6 +229,8 @@ function PlayerToolbar({
   onClose: () => void;
   onMultiview: () => void;
   onPiP: () => void;
+  onSleepTimer: () => void;
+  sleepActive: boolean;
   colors: ReturnType<typeof useColors>;
   bottomPad: number;
 }) {
@@ -140,6 +244,13 @@ function PlayerToolbar({
     { icon: "circle", label: "Recordings" },
     { icon: "layout", label: "Multiview", onPress: onMultiview },
     { icon: "maximize", label: "Picture-in-picture", onPress: onPiP },
+    {
+      icon: "moon",
+      label: "Sleep timer",
+      onPress: onSleepTimer,
+      active: sleepActive,
+      activeColor: "#9C27B0",
+    },
     { icon: "monitor", label: "1280 × 720" },
     { icon: "volume-2", label: "Stereo" },
     { icon: "clock", label: "0 ms" },
@@ -329,6 +440,33 @@ export default function PlayerScreen() {
   const [showMultiview, setShowMultiview] = useState(false);
   const controlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [sleepTimerEnd, setSleepTimerEnd] = useState<number | null>(null);
+  const [sleepSecondsLeft, setSleepSecondsLeft] = useState<number | null>(null);
+  const [sleepActiveMinutes, setSleepActiveMinutes] = useState(0);
+  const [showSleepTimer, setShowSleepTimer] = useState(false);
+
+  useEffect(() => {
+    if (sleepTimerEnd === null) {
+      setSleepSecondsLeft(null);
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.ceil((sleepTimerEnd - Date.now()) / 1000);
+      if (remaining <= 0) {
+        setSleepTimerEnd(null);
+        setSleepSecondsLeft(null);
+        setSleepActiveMinutes(0);
+        videoRef.current?.pauseAsync();
+        router.back();
+      } else {
+        setSleepSecondsLeft(remaining);
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [sleepTimerEnd]);
+
   const position: number = status?.positionMillis ?? 0;
   const duration: number = status?.durationMillis ?? 0;
   const isPlaying: boolean = status?.isPlaying ?? false;
@@ -450,7 +588,22 @@ export default function PlayerScreen() {
                 </View>
               )}
             </View>
-            {!isCatchUp && (
+            {sleepSecondsLeft !== null && (
+              <TouchableOpacity
+                style={[styles.sleepBadge, { backgroundColor: "rgba(156,39,176,0.3)" }]}
+                onPress={() => setShowSleepTimer(true)}
+              >
+                <Feather name="moon" size={11} color="#CE93D8" />
+                <Text style={styles.sleepBadgeText}>
+                  {sleepSecondsLeft >= 3600
+                    ? `${Math.floor(sleepSecondsLeft / 3600)}h ${Math.floor((sleepSecondsLeft % 3600) / 60)}m`
+                    : sleepSecondsLeft >= 60
+                    ? `${Math.floor(sleepSecondsLeft / 60)}m ${sleepSecondsLeft % 60}s`
+                    : `${sleepSecondsLeft}s`}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {!isCatchUp && sleepSecondsLeft === null && (
               <View style={styles.liveBadge}>
                 <View style={styles.liveDot} />
                 <Text style={styles.liveText}>LIVE</Text>
@@ -543,6 +696,11 @@ export default function PlayerScreen() {
                     startPiP(streamUrl, name ?? "Unknown", channelId);
                     router.back();
                   }}
+                  onSleepTimer={() => {
+                    setShowToolbar(false);
+                    setShowSleepTimer(true);
+                  }}
+                  sleepActive={sleepActiveMinutes > 0}
                   colors={colors}
                   bottomPad={bottomPad}
                 />
@@ -560,6 +718,23 @@ export default function PlayerScreen() {
         onClose={() => {
           setShowMultiview(false);
           setShowControls(true);
+        }}
+      />
+
+      <SleepTimerModal
+        visible={showSleepTimer}
+        activeMinutes={sleepActiveMinutes}
+        colors={colors}
+        onClose={() => setShowSleepTimer(false)}
+        onSelect={(minutes) => {
+          setShowSleepTimer(false);
+          setSleepActiveMinutes(minutes);
+          if (minutes === 0) {
+            setSleepTimerEnd(null);
+            setSleepSecondsLeft(null);
+          } else {
+            setSleepTimerEnd(Date.now() + minutes * 60 * 1000);
+          }
         }}
       />
     </View>
@@ -606,6 +781,20 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontFamily: "Inter_700Bold",
     letterSpacing: 1,
+  },
+  sleepBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  sleepBadgeText: {
+    color: "#CE93D8",
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.5,
   },
   liveBadge: {
     flexDirection: "row",
