@@ -39,7 +39,19 @@ router.get("/stalker/proxy", async (req, res) => {
     return;
   }
 
-  const data = await response.json();
+  const text = await response.text();
+  if (!text.trim()) {
+    res.json({ js: null });
+    return;
+  }
+
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    res.json({ js: null, _raw: text.slice(0, 200) });
+    return;
+  }
   res.json(data);
 });
 

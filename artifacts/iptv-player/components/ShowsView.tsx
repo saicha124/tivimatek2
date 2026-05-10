@@ -23,6 +23,8 @@ interface ShowsViewProps {
   onPlayVOD: (url: string, name: string) => void;
 }
 
+// ─── M3U grouping helpers (used for non-Stalker playlists) ────────────────────
+
 interface SeriesGroup {
   name: string;
   logo?: string;
@@ -71,45 +73,151 @@ function groupEpisodesBySeasons(episodes: VODItem[]): Record<number, VODItem[]> 
   return map;
 }
 
-function SeriesCard({
-  series,
-  selected,
-  onPress,
+// ─── Stalker series detail (rich metadata + direct play) ─────────────────────
+
+function StalkerSeriesDetail({
+  item,
+  isFav,
+  onPlay,
+  onToggleFav,
 }: {
-  series: SeriesGroup;
-  selected: boolean;
-  onPress: () => void;
+  item: VODItem;
+  isFav: boolean;
+  onPlay: () => void;
+  onToggleFav: () => void;
 }) {
   const colors = useColors();
+
+  const yearStr = item.year ? item.year.slice(0, 4) : null;
+  const ratingVal = item.rating ? parseFloat(item.rating) : null;
+
   return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.8}
-      style={[
-        styles.seriesCard,
-        selected && { borderColor: colors.primary, borderWidth: 2 },
-      ]}
-    >
-      {series.logo ? (
-        <Image source={{ uri: series.logo }} style={styles.seriesImg} contentFit="cover" />
-      ) : (
-        <View style={[styles.seriesPlaceholder, { backgroundColor: colors.secondary }]}>
-          <Feather name="grid" size={28} color={colors.mutedForeground} />
+    <View style={styles.detailRoot}>
+      {/* Backdrop banner */}
+      <View style={styles.detailBanner}>
+        {item.logo ? (
+          <Image
+            source={{ uri: item.logo }}
+            style={StyleSheet.absoluteFillObject}
+            contentFit="cover"
+            blurRadius={Platform.OS === "web" ? 0 : 4}
+          />
+        ) : (
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.secondary }]} />
+        )}
+        <LinearGradient
+          colors={["rgba(0,0,0,0.1)", "rgba(13,13,13,0.97)"]}
+          style={StyleSheet.absoluteFillObject}
+        />
+
+        <View style={styles.bannerLayout}>
+          {/* Poster thumbnail */}
+          {item.logo ? (
+            <View style={styles.posterWrap}>
+              <Image source={{ uri: item.logo }} style={styles.poster} contentFit="cover" />
+            </View>
+          ) : (
+            <View style={[styles.posterWrap, styles.posterPlaceholder, { backgroundColor: colors.secondary }]}>
+              <Feather name="grid" size={28} color={colors.mutedForeground} />
+            </View>
+          )}
+
+          {/* Info column */}
+          <View style={styles.bannerInfo}>
+            <Text style={styles.bannerTitle} numberOfLines={2}>{item.name}</Text>
+
+            {/* Badges row */}
+            <View style={styles.badgeRow}>
+              {yearStr && (
+                <View style={[styles.badge, { backgroundColor: colors.secondary }]}>
+                  <Text style={[styles.badgeText, { color: colors.mutedForeground }]}>{yearStr}</Text>
+                </View>
+              )}
+              {ratingVal !== null && !isNaN(ratingVal) && (
+                <View style={[styles.badge, { backgroundColor: "#f5c51820" }]}>
+                  <Feather name="star" size={9} color="#f5c518" />
+                  <Text style={[styles.badgeText, { color: "#f5c518" }]}>{item.rating} IMDb</Text>
+                </View>
+              )}
+              {item.age && (
+                <View style={[styles.badge, { backgroundColor: colors.secondary }]}>
+                  <Text style={[styles.badgeText, { color: colors.mutedForeground }]}>{item.age}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Genres */}
+            {item.genres && (
+              <Text style={[styles.genresText, { color: colors.primary }]} numberOfLines={1}>
+                {item.genres}
+              </Text>
+            )}
+
+            {/* Action buttons */}
+            <View style={styles.bannerActions}>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  onPlay();
+                }}
+                style={[styles.playBtn, { backgroundColor: colors.foreground }]}
+                activeOpacity={0.85}
+              >
+                <Feather name="play" size={15} color={colors.background} />
+                <Text style={[styles.playBtnText, { color: colors.background }]}>Watch</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => { Haptics.selectionAsync(); onToggleFav(); }}
+                style={[styles.favBtn, {
+                  backgroundColor: isFav ? `${colors.primary}22` : colors.secondary,
+                  borderColor: isFav ? colors.primary : colors.border,
+                }]}
+                activeOpacity={0.8}
+              >
+                <Feather name="bookmark" size={14} color={isFav ? colors.primary : colors.mutedForeground} />
+                <Text style={[styles.favBtnText, { color: isFav ? colors.primary : colors.mutedForeground }]}>
+                  {isFav ? "Saved" : "My List"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
-      )}
-      <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.88)"]}
-        style={styles.seriesGradient}
-      />
-      <Text style={styles.seriesTitle} numberOfLines={2}>{series.name}</Text>
-      <View style={styles.episodeBadge}>
-        <Text style={styles.episodeBadgeText}>{series.episodes.length} ep</Text>
       </View>
-    </TouchableOpacity>
+
+      {/* Metadata section */}
+      <ScrollView
+        style={styles.metaScroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 12 }}
+      >
+        {item.description ? (
+          <View style={styles.metaBlock}>
+            <Text style={[styles.metaLabel, { color: colors.mutedForeground }]}>SYNOPSIS</Text>
+            <Text style={[styles.metaValue, { color: colors.foreground }]}>{item.description}</Text>
+          </View>
+        ) : null}
+
+        {item.director && item.director !== "N/A" && (
+          <View style={[styles.metaRow, { borderTopColor: colors.border }]}>
+            <Text style={[styles.metaRowLabel, { color: colors.mutedForeground }]}>Director</Text>
+            <Text style={[styles.metaRowValue, { color: colors.foreground }]} numberOfLines={2}>{item.director}</Text>
+          </View>
+        )}
+
+        {item.actors && item.actors !== "N/A" && (
+          <View style={[styles.metaRow, { borderTopColor: colors.border }]}>
+            <Text style={[styles.metaRowLabel, { color: colors.mutedForeground }]}>Cast</Text>
+            <Text style={[styles.metaRowValue, { color: colors.foreground }]} numberOfLines={3}>{item.actors}</Text>
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
-function SeriesDetail({
+// ─── M3U series detail (season/episode list) ──────────────────────────────────
+
+function M3USeriesDetail({
   series,
   isFav,
   onPlayEp,
@@ -124,12 +232,10 @@ function SeriesDetail({
   const seasonMap = useMemo(() => groupEpisodesBySeasons(series.episodes), [series]);
   const seasons = Object.keys(seasonMap).map(Number).sort((a, b) => a - b);
   const [activeSeason, setActiveSeason] = useState(seasons[0] ?? 1);
-
   const eps = seasonMap[activeSeason] ?? [];
 
   return (
     <View style={styles.detailRoot}>
-      {/* Backdrop */}
       <View style={styles.detailBanner}>
         {series.logo ? (
           <Image
@@ -147,12 +253,12 @@ function SeriesDetail({
         />
         <View style={styles.bannerContent}>
           <Text style={styles.bannerTitle} numberOfLines={2}>{series.name}</Text>
-          <View style={styles.bannerMeta}>
-            <Text style={[styles.bannerMetaText, { color: colors.primary }]}>{series.category}</Text>
-            <Text style={[styles.bannerMetaText, { color: colors.mutedForeground }]}>
+          <View style={styles.badgeRow}>
+            <Text style={[styles.badgeText, { color: colors.primary }]}>{series.category}</Text>
+            <Text style={[styles.badgeText, { color: colors.mutedForeground }]}>
               · {seasons.length} {seasons.length === 1 ? "Season" : "Seasons"}
             </Text>
-            <Text style={[styles.bannerMetaText, { color: colors.mutedForeground }]}>
+            <Text style={[styles.badgeText, { color: colors.mutedForeground }]}>
               · {series.episodes.length} Episodes
             </Text>
           </View>
@@ -172,7 +278,10 @@ function SeriesDetail({
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => { Haptics.selectionAsync(); onToggleFav(); }}
-              style={[styles.favBtn, { backgroundColor: isFav ? `${colors.primary}25` : colors.secondary, borderColor: isFav ? colors.primary : colors.border }]}
+              style={[styles.favBtn, {
+                backgroundColor: isFav ? `${colors.primary}25` : colors.secondary,
+                borderColor: isFav ? colors.primary : colors.border,
+              }]}
               activeOpacity={0.8}
             >
               <Feather name="bookmark" size={14} color={isFav ? colors.primary : colors.mutedForeground} />
@@ -184,7 +293,6 @@ function SeriesDetail({
         </View>
       </View>
 
-      {/* Season tabs */}
       {seasons.length > 1 && (
         <ScrollView
           horizontal
@@ -200,8 +308,7 @@ function SeriesDetail({
                 onPress={() => { Haptics.selectionAsync(); setActiveSeason(s); }}
                 style={[
                   styles.seasonTab,
-                  active && { backgroundColor: colors.primary },
-                  !active && { backgroundColor: colors.secondary },
+                  active ? { backgroundColor: colors.primary } : { backgroundColor: colors.secondary },
                 ]}
                 activeOpacity={0.8}
               >
@@ -214,7 +321,6 @@ function SeriesDetail({
         </ScrollView>
       )}
 
-      {/* Episodes */}
       <FlatList
         data={eps}
         keyExtractor={(ep) => ep.id}
@@ -240,9 +346,7 @@ function SeriesDetail({
                 )}
               </View>
               <View style={styles.epInfo}>
-                <Text style={[styles.epTitle, { color: colors.foreground }]} numberOfLines={2}>
-                  {ep.name}
-                </Text>
+                <Text style={[styles.epTitle, { color: colors.foreground }]} numberOfLines={2}>{ep.name}</Text>
               </View>
               <View style={[styles.epPlayBtn, { backgroundColor: colors.primary }]}>
                 <Feather name="play" size={13} color="#fff" />
@@ -255,12 +359,61 @@ function SeriesDetail({
   );
 }
 
+// ─── Series thumbnail card ────────────────────────────────────────────────────
+
+function SeriesCard({
+  name,
+  logo,
+  badge,
+  selected,
+  onPress,
+}: {
+  name: string;
+  logo?: string;
+  badge?: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.8}
+      style={[
+        styles.seriesCard,
+        selected && { borderColor: colors.primary, borderWidth: 2 },
+      ]}
+    >
+      {logo ? (
+        <Image source={{ uri: logo }} style={styles.seriesImg} contentFit="cover" />
+      ) : (
+        <View style={[styles.seriesPlaceholder, { backgroundColor: colors.secondary }]}>
+          <Feather name="grid" size={28} color={colors.mutedForeground} />
+        </View>
+      )}
+      <LinearGradient
+        colors={["transparent", "rgba(0,0,0,0.88)"]}
+        style={styles.seriesGradient}
+      />
+      <Text style={styles.seriesTitle} numberOfLines={2}>{name}</Text>
+      {badge && (
+        <View style={styles.episodeBadge}>
+          <Text style={styles.episodeBadgeText}>{badge}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+// ─── Main ShowsView ───────────────────────────────────────────────────────────
+
 export function ShowsView({ onPlayVOD }: ShowsViewProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { activePlaylist, favorites, toggleFavorite, watchHistory } = useIPTV();
 
   const shows = activePlaylist?.shows ?? [];
+  const isStalker = activePlaylist?.type === "StalkerPortal";
 
   const categories = useMemo(() => {
     const cats = Array.from(new Set(shows.map((s) => s.category))).sort();
@@ -268,7 +421,8 @@ export function ShowsView({ onPlayVOD }: ShowsViewProps) {
   }, [shows]);
 
   const [selectedCat, setSelectedCat] = useState("All shows");
-  const [selectedSeries, setSelectedSeries] = useState<SeriesGroup | null>(null);
+  // For Stalker: selected VODItem id. For M3U: selected SeriesGroup name.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -283,12 +437,19 @@ export function ShowsView({ onPlayVOD }: ShowsViewProps) {
     return shows.filter((s) => s.category === selectedCat);
   }, [selectedCat, shows, favorites, watchHistory]);
 
-  const seriesList = useMemo(() => groupIntoSeries(filteredShows), [filteredShows]);
+  // Stalker: work directly with VODItems
+  const stalkerItems = filteredShows;
+  const currentStalkerItem = useMemo(() => {
+    if (!isStalker) return null;
+    return stalkerItems.find((s) => s.id === selectedId) ?? stalkerItems[0] ?? null;
+  }, [isStalker, stalkerItems, selectedId]);
 
-  const currentSeries = selectedSeries ?? seriesList[0] ?? null;
-
-  const firstEpId = currentSeries?.episodes[0]?.id ?? null;
-  const isFav = firstEpId ? favorites.includes(firstEpId) : false;
+  // M3U: group by name pattern
+  const seriesList = useMemo(() => (isStalker ? [] : groupIntoSeries(filteredShows)), [isStalker, filteredShows]);
+  const currentSeries = useMemo(() => {
+    if (isStalker) return null;
+    return seriesList.find((s) => s.name === selectedId) ?? seriesList[0] ?? null;
+  }, [isStalker, seriesList, selectedId]);
 
   if (shows.length === 0) {
     return (
@@ -317,7 +478,7 @@ export function ShowsView({ onPlayVOD }: ShowsViewProps) {
                 onPress={() => {
                   Haptics.selectionAsync();
                   setSelectedCat(cat);
-                  setSelectedSeries(null);
+                  setSelectedId(null);
                 }}
                 style={[styles.catItem, active && { backgroundColor: colors.highlight }]}
                 activeOpacity={0.7}
@@ -349,41 +510,78 @@ export function ShowsView({ onPlayVOD }: ShowsViewProps) {
         </ScrollView>
       </View>
 
-      {/* Right: Series list + detail */}
+      {/* Right: detail + strip */}
       <View style={styles.content}>
-        {/* Series detail panel */}
-        {currentSeries && (
-          <SeriesDetail
-            series={currentSeries}
-            isFav={isFav}
-            onPlayEp={(ep) => onPlayVOD(ep.url, ep.name)}
-            onToggleFav={() => {
-              if (currentSeries.episodes[0]) toggleFavorite(currentSeries.episodes[0].id);
-            }}
-          />
-        )}
-
-        {/* Series horizontal scroll */}
-        {seriesList.length > 0 && (
-          <View style={[styles.seriesStrip, { borderTopColor: colors.border }]}>
-            <Text style={[styles.stripHeader, { color: colors.mutedForeground }]}>
-              {seriesList.length} {seriesList.length === 1 ? "SERIES" : "SERIES"}
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 12, gap: 8, paddingBottom: bottomPad + 8 }}
-            >
-              {seriesList.map((s) => (
-                <SeriesCard
-                  key={s.name}
-                  series={s}
-                  selected={currentSeries?.name === s.name}
-                  onPress={() => { Haptics.selectionAsync(); setSelectedSeries(s); }}
-                />
-              ))}
-            </ScrollView>
-          </View>
+        {isStalker ? (
+          <>
+            {currentStalkerItem && (
+              <StalkerSeriesDetail
+                item={currentStalkerItem}
+                isFav={favorites.includes(currentStalkerItem.id)}
+                onPlay={() => onPlayVOD(currentStalkerItem.url, currentStalkerItem.name)}
+                onToggleFav={() => toggleFavorite(currentStalkerItem.id)}
+              />
+            )}
+            {stalkerItems.length > 0 && (
+              <View style={[styles.seriesStrip, { borderTopColor: colors.border }]}>
+                <Text style={[styles.stripHeader, { color: colors.mutedForeground }]}>
+                  {stalkerItems.length} {stalkerItems.length === 1 ? "SERIES" : "SERIES"}
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 12, gap: 8, paddingBottom: bottomPad + 8 }}
+                >
+                  {stalkerItems.map((item) => (
+                    <SeriesCard
+                      key={item.id}
+                      name={item.name}
+                      logo={item.logo}
+                      badge={item.year ? item.year.slice(0, 4) : undefined}
+                      selected={currentStalkerItem?.id === item.id}
+                      onPress={() => { Haptics.selectionAsync(); setSelectedId(item.id); }}
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </>
+        ) : (
+          <>
+            {currentSeries && (
+              <M3USeriesDetail
+                series={currentSeries}
+                isFav={currentSeries.episodes[0] ? favorites.includes(currentSeries.episodes[0].id) : false}
+                onPlayEp={(ep) => onPlayVOD(ep.url, ep.name)}
+                onToggleFav={() => {
+                  if (currentSeries.episodes[0]) toggleFavorite(currentSeries.episodes[0].id);
+                }}
+              />
+            )}
+            {seriesList.length > 0 && (
+              <View style={[styles.seriesStrip, { borderTopColor: colors.border }]}>
+                <Text style={[styles.stripHeader, { color: colors.mutedForeground }]}>
+                  {seriesList.length} {seriesList.length === 1 ? "SERIES" : "SERIES"}
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 12, gap: 8, paddingBottom: bottomPad + 8 }}
+                >
+                  {seriesList.map((s) => (
+                    <SeriesCard
+                      key={s.name}
+                      name={s.name}
+                      logo={s.logo}
+                      badge={`${s.episodes.length} ep`}
+                      selected={currentSeries?.name === s.name}
+                      onPress={() => { Haptics.selectionAsync(); setSelectedId(s.name); }}
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </>
         )}
       </View>
     </View>
@@ -434,42 +632,77 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  // ── detail root ──
   detailRoot: {
     flex: 1,
   },
   detailBanner: {
-    height: 200,
+    height: 220,
     position: "relative",
     overflow: "hidden",
   },
-  bannerContent: {
+  // ── Stalker banner layout ──
+  bannerLayout: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
+    flexDirection: "row",
+    alignItems: "flex-end",
     padding: 14,
-    paddingTop: 28,
+    gap: 14,
+  },
+  posterWrap: {
+    width: 90,
+    height: 130,
+    borderRadius: 6,
+    overflow: "hidden",
+    flexShrink: 0,
+  },
+  posterPlaceholder: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  poster: {
+    width: 90,
+    height: 130,
+  },
+  bannerInfo: {
+    flex: 1,
+    gap: 4,
   },
   bannerTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: "Inter_700Bold",
     color: "#fff",
-    marginBottom: 4,
   },
-  bannerMeta: {
+  badgeRow: {
     flexDirection: "row",
-    gap: 2,
-    marginBottom: 10,
     flexWrap: "wrap",
+    gap: 5,
+    alignItems: "center",
   },
-  bannerMetaText: {
-    fontSize: 11,
-    fontFamily: "Inter_400Regular",
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  badgeText: {
+    fontSize: 10,
+    fontFamily: "Inter_500Medium",
+  },
+  genresText: {
+    fontSize: 10,
+    fontFamily: "Inter_500Medium",
   },
   bannerActions: {
     flexDirection: "row",
     gap: 10,
     alignItems: "center",
+    marginTop: 4,
   },
   playBtn: {
     flexDirection: "row",
@@ -495,6 +728,55 @@ const styles = StyleSheet.create({
   favBtnText: {
     fontSize: 12,
     fontFamily: "Inter_500Medium",
+  },
+  // ── metadata section ──
+  metaScroll: {
+    flex: 1,
+  },
+  metaBlock: {
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 6,
+  },
+  metaLabel: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1.2,
+    marginBottom: 5,
+  },
+  metaValue: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 18,
+  },
+  metaRow: {
+    flexDirection: "row",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+  },
+  metaRowLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    width: 58,
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  metaRowValue: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    flex: 1,
+    lineHeight: 17,
+  },
+  // ── M3U banner (legacy) ──
+  bannerContent: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 14,
+    paddingTop: 28,
   },
   seasonTabs: {
     height: 40,
@@ -556,6 +838,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  // ── series strip ──
   seriesStrip: {
     borderTopWidth: 1,
     paddingTop: 10,
@@ -614,6 +897,7 @@ const styles = StyleSheet.create({
     color: "#ccc",
     fontFamily: "Inter_500Medium",
   },
+  // ── empty state ──
   empty: {
     flex: 1,
     alignItems: "center",

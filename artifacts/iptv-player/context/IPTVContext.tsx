@@ -34,6 +34,12 @@ export interface VODItem {
   logo?: string;
   url: string;
   description?: string;
+  director?: string;
+  actors?: string;
+  year?: string;
+  rating?: string;
+  genres?: string;
+  age?: string;
 }
 
 export interface Playlist {
@@ -352,6 +358,12 @@ async function fetchStalkerPortal(
     logo: v.screenshot_uri || v.cover || v.pic || undefined,
     url: `stalker-vod:${v.id}`,
     description: v.description || undefined,
+    director: v.director || undefined,
+    actors: v.actors || undefined,
+    year: v.year ? String(v.year).slice(0, 4) : undefined,
+    rating: v.rating_imdb && v.rating_imdb !== "N/A" ? String(v.rating_imdb) : undefined,
+    genres: v.genres_str || undefined,
+    age: v.age || undefined,
   }));
 
   onProgress("Fetching series...");
@@ -386,6 +398,12 @@ async function fetchStalkerPortal(
     logo: s.screenshot_uri || s.cover || s.poster || undefined,
     url: `stalker-series:${s.id}`,
     description: s.description || undefined,
+    director: s.director || undefined,
+    actors: s.actors || undefined,
+    year: s.year ? String(s.year).slice(0, 4) : undefined,
+    rating: s.rating_imdb && s.rating_imdb !== "N/A" ? String(s.rating_imdb) : undefined,
+    genres: s.genres_str || undefined,
+    age: s.age || undefined,
   }));
 
   return { channels, movies, shows, token };
@@ -676,15 +694,16 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (stalkerUrl.startsWith("stalker-series:")) {
-      const seriesId = stalkerUrl.replace("stalker-series:", "");
+      // Series IDs are stored as "38:38" — VOD create_link needs just the numeric part
+      const rawId = stalkerUrl.replace("stalker-series:", "").split(":")[0];
       const resp = await call({
-        type: "series",
+        type: "vod",
         action: "create_link",
         cmd: "ffmpeg ",
-        series: seriesId,
+        series: "",
         forced_storage: "",
         download: "0",
-        movie_id: seriesId,
+        movie_id: rawId,
       });
       const resultCmd: string = resp?.js?.cmd || "";
       const streamUrl = resultCmd.replace(/^ffmpeg\s+/, "").trim();
