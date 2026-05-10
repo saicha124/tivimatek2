@@ -13,9 +13,11 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { FloatingPiPPlayer } from "@/components/FloatingPiPPlayer";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { IPTVProvider } from "@/context/IPTVContext";
 import { ParentalProvider } from "@/context/ParentalContext";
+import { PiPProvider } from "@/context/PiPContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -55,7 +57,10 @@ export default function RootLayout() {
             <KeyboardProvider>
               <ParentalProvider>
                 <IPTVProvider>
-                  <RootLayoutNav />
+                  <PiPProvider>
+                    <RootLayoutNav />
+                    <FloatingPiPPlayer />
+                  </PiPProvider>
                 </IPTVProvider>
               </ParentalProvider>
             </KeyboardProvider>

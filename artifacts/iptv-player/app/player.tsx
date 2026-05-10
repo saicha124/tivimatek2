@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 import { useIPTV } from "@/context/IPTVContext";
+import { usePiP } from "@/context/PiPContext";
 import { MultiviewScreen } from "@/components/MultiviewScreen";
 
 function formatTime(ms: number) {
@@ -118,12 +119,14 @@ function PlayerToolbar({
   channelId,
   onClose,
   onMultiview,
+  onPiP,
   colors,
   bottomPad,
 }: {
   channelId?: string;
   onClose: () => void;
   onMultiview: () => void;
+  onPiP: () => void;
   colors: ReturnType<typeof useColors>;
   bottomPad: number;
 }) {
@@ -136,7 +139,7 @@ function PlayerToolbar({
     { icon: "list", label: "Channels list" },
     { icon: "circle", label: "Recordings" },
     { icon: "layout", label: "Multiview", onPress: onMultiview },
-    { icon: "maximize", label: "Picture-in-picture" },
+    { icon: "maximize", label: "Picture-in-picture", onPress: onPiP },
     { icon: "monitor", label: "1280 × 720" },
     { icon: "volume-2", label: "Stereo" },
     { icon: "clock", label: "0 ms" },
@@ -316,6 +319,8 @@ export default function PlayerScreen() {
         return `${url}${separator}utc=${startSec}&lutc=${endSec}&duration=${durationSec}`;
       })()
     : url;
+
+  const { startPiP } = usePiP();
 
   const [status, setStatus] = useState<any>({});
   const [showControls, setShowControls] = useState(true);
@@ -531,6 +536,12 @@ export default function PlayerScreen() {
                     setShowToolbar(false);
                     setShowControls(false);
                     setShowMultiview(true);
+                  }}
+                  onPiP={() => {
+                    if (!streamUrl) return;
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    startPiP(streamUrl, name ?? "Unknown", channelId);
+                    router.back();
                   }}
                   colors={colors}
                   bottomPad={bottomPad}
