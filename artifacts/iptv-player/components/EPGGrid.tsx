@@ -9,6 +9,7 @@ import React, {
   useState,
 } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -156,7 +157,16 @@ interface EPGGridProps {
 export function EPGGrid({ onPlayChannel, onCatchUp, onGoToRecordings }: EPGGridProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { activePlaylist, selectedGroup, selectedChannel, setSelectedChannel, recordings } = useIPTV();
+  const {
+    activePlaylist,
+    selectedGroup,
+    selectedChannel,
+    setSelectedChannel,
+    recordings,
+    stalkerEpgData,
+    stalkerEpgLoading,
+    loadStalkerEPG,
+  } = useIPTV();
 
   const now = Date.now();
   const [selectedDayOffset, setSelectedDayOffset] = useState(0);
@@ -182,6 +192,17 @@ export function EPGGrid({ onPlayChannel, onCatchUp, onGoToRecordings }: EPGGridP
     return clamp(msToSlotOffset(sixAm, refTime), 0, totalWidth);
   }, [isToday, nowOffset, refTime, totalWidth]);
 
+  // Auto-load Stalker EPG when EPG grid is opened for a Stalker playlist
+  useEffect(() => {
+    if (
+      activePlaylist?.type === "StalkerPortal" &&
+      Object.keys(stalkerEpgData).length === 0 &&
+      !stalkerEpgLoading
+    ) {
+      loadStalkerEPG(activePlaylist);
+    }
+  }, [activePlaylist?.id]);
+
   const rawChannels = useMemo(() => {
     if (!activePlaylist) return [];
     const all = activePlaylist.channels;
@@ -189,10 +210,14 @@ export function EPGGrid({ onPlayChannel, onCatchUp, onGoToRecordings }: EPGGridP
     return filtered.slice(0, 60);
   }, [activePlaylist, selectedGroup]);
 
-  const channels = useMemo(
-    () => ensureEPG(rawChannels, 2, 3),
-    [rawChannels]
-  );
+  // Merge real Stalker EPG data into channels; fall back to mock for channels without real EPG
+  const channels = useMemo(() => {
+    const withRealEpg = rawChannels.map((ch) => {
+      const realEpg = stalkerEpgData[ch.id];
+      return realEpg && realEpg.length > 0 ? { ...ch, epg: realEpg } : ch;
+    });
+    return ensureEPG(withRealEpg, 2, 3);
+  }, [rawChannels, stalkerEpgData]);
 
   // Synchronized horizontal scroll
   const headerScrollRef = useRef<ScrollView>(null);
@@ -406,6 +431,24 @@ export function EPGGrid({ onPlayChannel, onCatchUp, onGoToRecordings }: EPGGridP
               </TouchableOpacity>
             );
           })}
+
+          {/* EPG loading badge — shown while real guide data is being fetched */}
+          {stalkerEpgLoading && (
+            <View style={[styles.epgLoadingBadge, { backgroundColor: colors.muted, borderColor: colors.border }]}>
+              <ActivityIndicator size="small" color={colors.primary} style={{ transform: [{ scale: 0.65 }] }} />
+              <Text style={[styles.epgLoadingText, { color: colors.mutedForeground }]}>Loading guide…</Text>
+            </View>
+          )}
+
+          {/* EPG loaded badge — briefly shown after real data arrives */}
+          {!stalkerEpgLoading && Object.keys(stalkerEpgData).length > 0 && (
+            <View style={[styles.epgLoadingBadge, { backgroundColor: colors.muted, borderColor: colors.border }]}>
+              <Feather name="check-circle" size={11} color="#4caf50" />
+              <Text style={[styles.epgLoadingText, { color: colors.mutedForeground }]}>
+                {Object.keys(stalkerEpgData).length} channels
+              </Text>
+            </View>
+          )}
         </ScrollView>
       </View>
 
@@ -516,6 +559,20 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
   },
   dayChipDate: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+  },
+  epgLoadingBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginLeft: 4,
+  },
+  epgLoadingText: {
     fontSize: 11,
     fontFamily: "Inter_400Regular",
   },

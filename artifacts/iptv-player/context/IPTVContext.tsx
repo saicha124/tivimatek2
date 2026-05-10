@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -175,6 +176,9 @@ interface IPTVContextValue {
   addPlaylist: (playlist: Omit<Playlist, "id" | "channels" | "movies" | "shows" | "lastUpdated">) => Promise<void>;
   removePlaylist: (id: string) => void;
   resolveStalkerStreamUrl: (playlist: Playlist, stalkerUrl: string) => Promise<string>;
+  stalkerEpgData: Record<string, EPGProgram[]>;
+  stalkerEpgLoading: boolean;
+  loadStalkerEPG: (playlist: Playlist) => Promise<void>;
   isLoading: boolean;
   loadingMessage: string;
 }
@@ -409,6 +413,9 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
   const [recordingSettings, setRecordingSettings] = useState<RecordingSettings>(DEFAULT_RECORDING_SETTINGS);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("");
+  const [stalkerEpgData, setStalkerEpgData] = useState<Record<string, EPGProgram[]>>({});
+  const [stalkerEpgLoading, setStalkerEpgLoading] = useState(false);
+  const stalkerEpgPlaylistId = useRef<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -688,6 +695,77 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
     throw new Error(`Unknown Stalker URL scheme: ${stalkerUrl}`);
   }, []);
 
+  const loadStalkerEPG = useCallback(async (playlist: Playlist) => {
+    if (!playlist.serverAddress || !playlist.macAddress) return;
+    if (stalkerEpgPlaylistId.current === playlist.id && !stalkerEpgLoading) return;
+    if (stalkerEpgLoading) return;
+
+    stalkerEpgPlaylistId.current = playlist.id;
+    setStalkerEpgLoading(true);
+
+    try {
+      const proxyBase = getStalkerProxyBase();
+
+      let token = playlist.stalkerToken;
+      if (!token) {
+        const hsData = await stalkerCall(proxyBase, playlist.serverAddress, playlist.macAddress, undefined, {
+          type: "stb",
+          action: "handshake",
+        });
+        token = hsData?.js?.token;
+        if (!token) return;
+      }
+
+      const call = (params: Record<string, string>) =>
+        stalkerCall(proxyBase, playlist.serverAddress!, playlist.macAddress!, token, params);
+
+      // Fetch EPG for all 6 day offsets: [-2,-1, today, +1, +2, +3]
+      // Stalker period: 1=today, 2=tomorrow, -1=yesterday, etc.
+      const periods = [-2, -1, 1, 2, 3, 4];
+      const results = await Promise.allSettled(
+        periods.map((p) =>
+          call({ type: "itv", action: "get_epg_info", period: String(p), ch_id: "0" })
+        )
+      );
+
+      const merged: Record<string, EPGProgram[]> = {};
+      for (const result of results) {
+        if (result.status !== "fulfilled") continue;
+        const data: Record<string, any[]> = result.value?.js?.data || {};
+        for (const [chId, programs] of Object.entries(data)) {
+          if (!merged[chId]) merged[chId] = [];
+          for (const p of programs as any[]) {
+            if (!p.start_timestamp || !p.stop_timestamp) continue;
+            merged[chId].push({
+              title: p.name || "Unknown",
+              description: p.descr || undefined,
+              startTime: p.start_timestamp * 1000,
+              endTime: p.stop_timestamp * 1000,
+            });
+          }
+        }
+      }
+
+      // Deduplicate and sort each channel's programs by start time
+      for (const chId of Object.keys(merged)) {
+        const seen = new Set<number>();
+        merged[chId] = merged[chId]
+          .filter((p) => {
+            if (seen.has(p.startTime)) return false;
+            seen.add(p.startTime);
+            return true;
+          })
+          .sort((a, b) => a.startTime - b.startTime);
+      }
+
+      setStalkerEpgData(merged);
+    } catch {
+      // EPG is non-critical; silently fail
+    } finally {
+      setStalkerEpgLoading(false);
+    }
+  }, [stalkerEpgLoading]);
+
   const addPlaylist = useCallback(
     async (data: Omit<Playlist, "id" | "channels" | "movies" | "shows" | "lastUpdated">) => {
       setIsLoading(true);
@@ -811,6 +889,9 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
         addPlaylist,
         removePlaylist,
         resolveStalkerStreamUrl,
+        stalkerEpgData,
+        stalkerEpgLoading,
+        loadStalkerEPG,
         isLoading,
         loadingMessage,
       }}
