@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
   Platform,
   StatusBar,
   StyleSheet,
@@ -34,24 +35,39 @@ export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { activePlaylist, selectedChannel, currentSection, setCurrentSection, addToWatchHistory } = useIPTV();
+  const { activePlaylist, selectedChannel, currentSection, setCurrentSection, addToWatchHistory, resolveStalkerStreamUrl } = useIPTV();
 
   const [showAddPlaylist, setShowAddPlaylist] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [manageFavoritesMode, setManageFavoritesMode] = useState(false);
+  const [resolvingStream, setResolvingStream] = useState(false);
 
-  const handlePlayChannel = (channel: Channel) => {
+  const handlePlayChannel = async (channel: Channel) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    let playUrl = channel.url;
+
+    if (activePlaylist?.type === "StalkerPortal" && channel.url.startsWith("stalker-")) {
+      setResolvingStream(true);
+      try {
+        playUrl = await resolveStalkerStreamUrl(activePlaylist, channel.url);
+      } catch (e: any) {
+        setResolvingStream(false);
+        return;
+      }
+      setResolvingStream(false);
+    }
+
     addToWatchHistory({
       channelId: channel.id,
       channelName: channel.name,
       channelGroup: channel.group,
       channelLogo: channel.logo,
-      channelUrl: channel.url,
+      channelUrl: playUrl,
     });
-    router.push({ pathname: "/player", params: { url: channel.url, name: channel.name, channelId: channel.id } });
+    router.push({ pathname: "/player", params: { url: playUrl, name: channel.name, channelId: channel.id } });
   };
 
   const handleCatchUp = (channel: Channel, program: EPGProgram) => {
@@ -157,12 +173,28 @@ export default function HomeScreen() {
           ) : currentSection === "Movies" ? (
             /* Movies VOD browser */
             <MoviesView
-              onPlayVOD={(url, name) => router.push({ pathname: "/player", params: { url, name } })}
+              onPlayVOD={async (url, name) => {
+                let playUrl = url;
+                if (activePlaylist?.type === "StalkerPortal" && url.startsWith("stalker-")) {
+                  setResolvingStream(true);
+                  try { playUrl = await resolveStalkerStreamUrl(activePlaylist, url); } catch { setResolvingStream(false); return; }
+                  setResolvingStream(false);
+                }
+                router.push({ pathname: "/player", params: { url: playUrl, name } });
+              }}
             />
           ) : currentSection === "Shows" ? (
             /* Shows / Series browser */
             <ShowsView
-              onPlayVOD={(url, name) => router.push({ pathname: "/player", params: { url, name } })}
+              onPlayVOD={async (url, name) => {
+                let playUrl = url;
+                if (activePlaylist?.type === "StalkerPortal" && url.startsWith("stalker-")) {
+                  setResolvingStream(true);
+                  try { playUrl = await resolveStalkerStreamUrl(activePlaylist, url); } catch { setResolvingStream(false); return; }
+                  setResolvingStream(false);
+                }
+                router.push({ pathname: "/player", params: { url: playUrl, name } });
+              }}
             />
           ) : viewMode === "epg" && currentSection === "TV" ? (
             /* EPG Grid view */
@@ -224,6 +256,17 @@ export default function HomeScreen() {
         onClose={() => setShowSwitcher(false)}
         onAddPlaylist={() => { setShowSwitcher(false); setShowAddPlaylist(true); }}
       />
+
+      {resolvingStream && (
+        <View style={styles.resolvingOverlay}>
+          <View style={[styles.resolvingBox, { backgroundColor: colors.card }]}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={[styles.resolvingText, { color: colors.foreground }]}>
+              Getting stream URL...
+            </Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -429,5 +472,24 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+  },
+  resolvingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 999,
+  },
+  resolvingBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  resolvingText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
   },
 });

@@ -44,6 +44,7 @@ export interface Playlist {
   password?: string;
   serverAddress?: string;
   macAddress?: string;
+  stalkerToken?: string;
   channels: Channel[];
   movies: VODItem[];
   shows: VODItem[];
@@ -173,6 +174,7 @@ interface IPTVContextValue {
   clearWatchHistory: () => void;
   addPlaylist: (playlist: Omit<Playlist, "id" | "channels" | "movies" | "shows" | "lastUpdated">) => Promise<void>;
   removePlaylist: (id: string) => void;
+  resolveStalkerStreamUrl: (playlist: Playlist, stalkerUrl: string) => Promise<string>;
   isLoading: boolean;
   loadingMessage: string;
 }
@@ -211,34 +213,15 @@ function parseM3U(text: string): { channels: Channel[]; movies: VODItem[]; shows
         groupLower.includes("film") ||
         groupLower.includes("vod")
       ) {
-        movies.push({
-          id,
-          name,
-          category: group,
-          logo: currentMeta.logo,
-          url,
-        });
+        movies.push({ id, name, category: group, logo: currentMeta.logo, url });
       } else if (
         groupLower.includes("serie") ||
         groupLower.includes("show") ||
         groupLower.includes("episode")
       ) {
-        shows.push({
-          id,
-          name,
-          category: group,
-          logo: currentMeta.logo,
-          url,
-        });
+        shows.push({ id, name, category: group, logo: currentMeta.logo, url });
       } else {
-        channels.push({
-          id,
-          name,
-          group,
-          logo: currentMeta.logo,
-          url,
-          tvgId: currentMeta.tvgId,
-        });
+        channels.push({ id, name, group, logo: currentMeta.logo, url, tvgId: currentMeta.tvgId });
       }
       currentMeta = {};
     }
@@ -254,11 +237,154 @@ async function fetchXtreamCodes(
 ): Promise<{ channels: Channel[]; movies: VODItem[]; shows: VODItem[] }> {
   const base = serverAddress.replace(/\/$/, "");
   const m3uUrl = `${base}/get.php?username=${username}&password=${password}&type=m3u_plus&output=ts`;
-
   const response = await fetch(m3uUrl);
   if (!response.ok) throw new Error("Failed to fetch Xtream Codes playlist");
   const text = await response.text();
   return parseM3U(text);
+}
+
+function getStalkerProxyBase(): string {
+  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (domain) return `https://${domain}/api`;
+  return "/api";
+}
+
+async function stalkerCall(
+  proxyBase: string,
+  portal: string,
+  mac: string,
+  token: string | undefined,
+  params: Record<string, string>
+): Promise<any> {
+  const qs = new URLSearchParams({ portal, mac, ...(token ? { token } : {}), ...params });
+  const resp = await fetch(`${proxyBase}/stalker/proxy?${qs}`);
+  if (!resp.ok) throw new Error(`Stalker proxy error: ${resp.status}`);
+  return resp.json();
+}
+
+async function fetchStalkerPortal(
+  portal: string,
+  mac: string,
+  onProgress: (msg: string) => void
+): Promise<{ channels: Channel[]; movies: VODItem[]; shows: VODItem[]; token: string }> {
+  const proxyBase = getStalkerProxyBase();
+  const BATCH = 15;
+
+  onProgress("Authenticating with portal...");
+  const hsData = await stalkerCall(proxyBase, portal, mac, undefined, { type: "stb", action: "handshake" });
+  const token: string = hsData?.js?.token;
+  if (!token) throw new Error("Handshake failed — could not get token from portal");
+
+  const call = (params: Record<string, string>) => stalkerCall(proxyBase, portal, mac, token, params);
+
+  onProgress("Fetching channel categories...");
+  const genresData = await call({ type: "itv", action: "get_genres" });
+  const genres: Array<{ id: string; title: string }> = genresData?.js || [];
+  const genreMap: Record<string, string> = {};
+  for (const g of genres) genreMap[g.id] = g.title;
+
+  onProgress("Fetching channels...");
+  const firstChPage = await call({ type: "itv", action: "get_ordered_list", genre: "*", sortby: "number", p: "1" });
+  const totalChannels = parseInt(firstChPage?.js?.total_items || "0", 10);
+  const chPerPage = (firstChPage?.js?.data || []).length || 14;
+  const totalChPages = Math.ceil(totalChannels / chPerPage);
+
+  let allChRaw: any[] = [...(firstChPage?.js?.data || [])];
+
+  for (let b = 2; b <= totalChPages; b += BATCH) {
+    const end = Math.min(b + BATCH - 1, totalChPages);
+    onProgress(`Loading channels (${allChRaw.length}/${totalChannels})...`);
+    const pages = await Promise.all(
+      Array.from({ length: end - b + 1 }, (_, i) =>
+        call({ type: "itv", action: "get_ordered_list", genre: "*", sortby: "number", p: String(b + i) })
+          .then((r: any) => r?.js?.data || [])
+          .catch(() => [])
+      )
+    );
+    for (const p of pages) allChRaw = allChRaw.concat(p);
+  }
+
+  const channels: Channel[] = allChRaw.map((ch: any) => {
+    const rawCmd: string = ch?.cmds?.[0]?.url || ch?.cmd || "";
+    return {
+      id: String(ch.id),
+      name: ch.name || "Unknown",
+      group: genreMap[ch.tv_genre_id] || "General",
+      logo: ch.logo || undefined,
+      url: `stalker-cmd:${rawCmd}`,
+      tvgId: ch.xmltv_id || undefined,
+    };
+  });
+
+  onProgress("Fetching movies...");
+  const vodCatsData = await call({ type: "vod", action: "get_categories" });
+  const vodCats: Array<{ id: string; title: string }> = (vodCatsData?.js || []).filter((c: any) => c.id !== "*");
+  const vodCatMap: Record<string, string> = {};
+  for (const c of vodCats) vodCatMap[c.id] = c.title;
+
+  const vodPage1 = await call({ type: "vod", action: "get_ordered_list", sortby: "name", p: "1", category: "*" });
+  const totalVod = parseInt(vodPage1?.js?.total_items || "0", 10);
+  const vodPerPage = (vodPage1?.js?.data || []).length || 14;
+  const totalVodPages = Math.min(Math.ceil(totalVod / vodPerPage), 50);
+
+  let allVodRaw: any[] = [...(vodPage1?.js?.data || [])];
+  for (let b = 2; b <= totalVodPages; b += BATCH) {
+    const end = Math.min(b + BATCH - 1, totalVodPages);
+    onProgress(`Loading movies (${allVodRaw.length}/${totalVod})...`);
+    const pages = await Promise.all(
+      Array.from({ length: end - b + 1 }, (_, i) =>
+        call({ type: "vod", action: "get_ordered_list", sortby: "name", p: String(b + i), category: "*" })
+          .then((r: any) => r?.js?.data || [])
+          .catch(() => [])
+      )
+    );
+    for (const p of pages) allVodRaw = allVodRaw.concat(p);
+  }
+
+  const movies: VODItem[] = allVodRaw.map((v: any) => ({
+    id: String(v.id),
+    name: v.name || v.o_name || "Unknown",
+    category: vodCatMap[String(v.category_id)] || "General",
+    logo: v.screenshot_uri || v.cover || v.pic || undefined,
+    url: `stalker-vod:${v.id}`,
+    description: v.description || undefined,
+  }));
+
+  onProgress("Fetching series...");
+  const serCatsData = await call({ type: "series", action: "get_categories" });
+  const serCats: Array<{ id: string; title: string }> = (serCatsData?.js || []).filter((c: any) => c.id !== "*");
+  const serCatMap: Record<string, string> = {};
+  for (const c of serCats) serCatMap[c.id] = c.title;
+
+  const serPage1 = await call({ type: "series", action: "get_ordered_list", sortby: "name", p: "1", category: "*" });
+  const totalSer = parseInt(serPage1?.js?.total_items || "0", 10);
+  const serPerPage = (serPage1?.js?.data || []).length || 14;
+  const totalSerPages = Math.min(Math.ceil(totalSer / serPerPage), 30);
+
+  let allSerRaw: any[] = [...(serPage1?.js?.data || [])];
+  for (let b = 2; b <= totalSerPages; b += BATCH) {
+    const end = Math.min(b + BATCH - 1, totalSerPages);
+    onProgress(`Loading series (${allSerRaw.length}/${totalSer})...`);
+    const pages = await Promise.all(
+      Array.from({ length: end - b + 1 }, (_, i) =>
+        call({ type: "series", action: "get_ordered_list", sortby: "name", p: String(b + i), category: "*" })
+          .then((r: any) => r?.js?.data || [])
+          .catch(() => [])
+      )
+    );
+    for (const p of pages) allSerRaw = allSerRaw.concat(p);
+  }
+
+  const shows: VODItem[] = allSerRaw.map((s: any) => ({
+    id: String(s.id),
+    name: s.name || s.o_name || "Unknown",
+    category: serCatMap[String(s.category_id)] || "General",
+    logo: s.screenshot_uri || s.cover || s.poster || undefined,
+    url: `stalker-series:${s.id}`,
+    description: s.description || undefined,
+  }));
+
+  return { channels, movies, shows, token };
 }
 
 export function IPTVProvider({ children }: { children: React.ReactNode }) {
@@ -333,9 +459,7 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
 
   const toggleFavorite = useCallback(async (channelId: string) => {
     setFavorites((prev) => {
-      const next = prev.includes(channelId)
-        ? prev.filter((id) => id !== channelId)
-        : [...prev, channelId];
+      const next = prev.includes(channelId) ? prev.filter((id) => id !== channelId) : [...prev, channelId];
       AsyncStorage.setItem("favorites", JSON.stringify(next));
       return next;
     });
@@ -343,9 +467,7 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
 
   const toggleBlockChannel = useCallback(async (channelId: string) => {
     setBlockedChannels((prev) => {
-      const next = prev.includes(channelId)
-        ? prev.filter((id) => id !== channelId)
-        : [...prev, channelId];
+      const next = prev.includes(channelId) ? prev.filter((id) => id !== channelId) : [...prev, channelId];
       AsyncStorage.setItem("blockedChannels", JSON.stringify(next));
       return next;
     });
@@ -353,9 +475,7 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
 
   const toggleHideChannel = useCallback(async (channelId: string) => {
     setHiddenChannels((prev) => {
-      const next = prev.includes(channelId)
-        ? prev.filter((id) => id !== channelId)
-        : [...prev, channelId];
+      const next = prev.includes(channelId) ? prev.filter((id) => id !== channelId) : [...prev, channelId];
       AsyncStorage.setItem("hiddenChannels", JSON.stringify(next));
       return next;
     });
@@ -363,9 +483,7 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
 
   const toggleHideGroup = useCallback(async (group: string) => {
     setHiddenGroups((prev) => {
-      const next = prev.includes(group)
-        ? prev.filter((g) => g !== group)
-        : [...prev, group];
+      const next = prev.includes(group) ? prev.filter((g) => g !== group) : [...prev, group];
       AsyncStorage.setItem("hiddenGroups", JSON.stringify(next));
       return next;
     });
@@ -373,9 +491,7 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
 
   const toggleFavoritesOnlyGroup = useCallback(async (group: string) => {
     setFavoritesOnlyGroups((prev) => {
-      const next = prev.includes(group)
-        ? prev.filter((g) => g !== group)
-        : [...prev, group];
+      const next = prev.includes(group) ? prev.filter((g) => g !== group) : [...prev, group];
       AsyncStorage.setItem("favoritesOnlyGroups", JSON.stringify(next));
       return next;
     });
@@ -399,9 +515,7 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
 
   const toggleGroupExternalPlayer = useCallback((group: string) => {
     setGroupExternalPlayer((prev) => {
-      const next = prev.includes(group)
-        ? prev.filter((g) => g !== group)
-        : [...prev, group];
+      const next = prev.includes(group) ? prev.filter((g) => g !== group) : [...prev, group];
       AsyncStorage.setItem("groupExternalPlayer", JSON.stringify(next));
       return next;
     });
@@ -496,6 +610,84 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.removeItem("watchHistory");
   }, []);
 
+  const resolveStalkerStreamUrl = useCallback(async (playlist: Playlist, stalkerUrl: string): Promise<string> => {
+    if (!playlist.serverAddress || !playlist.macAddress) {
+      throw new Error("Invalid Stalker playlist configuration");
+    }
+
+    const proxyBase = getStalkerProxyBase();
+
+    let token = playlist.stalkerToken;
+    if (!token) {
+      const hsData = await stalkerCall(proxyBase, playlist.serverAddress, playlist.macAddress, undefined, {
+        type: "stb",
+        action: "handshake",
+      });
+      token = hsData?.js?.token;
+      if (!token) throw new Error("Could not authenticate with Stalker portal");
+      setPlaylists((prev) => {
+        const next = prev.map((p) => (p.id === playlist.id ? { ...p, stalkerToken: token } : p));
+        AsyncStorage.setItem("playlists", JSON.stringify(next));
+        return next;
+      });
+    }
+
+    const call = (params: Record<string, string>) =>
+      stalkerCall(proxyBase, playlist.serverAddress!, playlist.macAddress!, token, params);
+
+    if (stalkerUrl.startsWith("stalker-cmd:")) {
+      const cmd = stalkerUrl.replace("stalker-cmd:", "");
+      const resp = await call({
+        type: "itv",
+        action: "create_link",
+        cmd,
+        forced_storage: "undefined",
+        disable_ad: "0",
+        download: "0",
+      });
+      const resultCmd: string = resp?.js?.cmd || "";
+      const streamUrl = resultCmd.replace(/^ffmpeg\s+/, "").trim();
+      if (!streamUrl) throw new Error("Portal returned no stream URL");
+      return streamUrl;
+    }
+
+    if (stalkerUrl.startsWith("stalker-vod:")) {
+      const movieId = stalkerUrl.replace("stalker-vod:", "");
+      const resp = await call({
+        type: "vod",
+        action: "create_link",
+        cmd: "ffmpeg ",
+        series: "",
+        forced_storage: "",
+        download: "0",
+        movie_id: movieId,
+      });
+      const resultCmd: string = resp?.js?.cmd || "";
+      const streamUrl = resultCmd.replace(/^ffmpeg\s+/, "").trim();
+      if (!streamUrl) throw new Error("Portal returned no VOD stream URL");
+      return streamUrl;
+    }
+
+    if (stalkerUrl.startsWith("stalker-series:")) {
+      const seriesId = stalkerUrl.replace("stalker-series:", "");
+      const resp = await call({
+        type: "series",
+        action: "create_link",
+        cmd: "ffmpeg ",
+        series: seriesId,
+        forced_storage: "",
+        download: "0",
+        movie_id: seriesId,
+      });
+      const resultCmd: string = resp?.js?.cmd || "";
+      const streamUrl = resultCmd.replace(/^ffmpeg\s+/, "").trim();
+      if (!streamUrl) throw new Error("Portal returned no series stream URL");
+      return streamUrl;
+    }
+
+    throw new Error(`Unknown Stalker URL scheme: ${stalkerUrl}`);
+  }, []);
+
   const addPlaylist = useCallback(
     async (data: Omit<Playlist, "id" | "channels" | "movies" | "shows" | "lastUpdated">) => {
       setIsLoading(true);
@@ -504,6 +696,7 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
         let channels: Channel[] = [];
         let movies: VODItem[] = [];
         let shows: VODItem[] = [];
+        let stalkerToken: string | undefined;
 
         if (data.type === "M3U") {
           setLoadingMessage("Fetching playlist...");
@@ -517,17 +710,20 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
           shows = parsed.shows;
         } else if (data.type === "XtreamCodes") {
           setLoadingMessage("Fetching channels...");
-          const parsed = await fetchXtreamCodes(
-            data.serverAddress!,
-            data.username!,
-            data.password!
-          );
+          const parsed = await fetchXtreamCodes(data.serverAddress!, data.username!, data.password!);
           channels = parsed.channels;
           movies = parsed.movies;
           shows = parsed.shows;
         } else if (data.type === "StalkerPortal") {
-          setLoadingMessage("Connecting to Stalker portal...");
-          channels = [];
+          const result = await fetchStalkerPortal(
+            data.serverAddress!,
+            data.macAddress!,
+            (msg) => setLoadingMessage(msg)
+          );
+          channels = result.channels;
+          movies = result.movies;
+          shows = result.shows;
+          stalkerToken = result.token;
         }
 
         const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
@@ -537,6 +733,7 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
           channels,
           movies,
           shows,
+          stalkerToken,
           lastUpdated: Date.now(),
         };
 
@@ -613,6 +810,7 @@ export function IPTVProvider({ children }: { children: React.ReactNode }) {
         clearWatchHistory,
         addPlaylist,
         removePlaylist,
+        resolveStalkerStreamUrl,
         isLoading,
         loadingMessage,
       }}
