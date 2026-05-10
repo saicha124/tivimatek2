@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   ScrollView,
@@ -10,6 +11,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -24,8 +26,12 @@ import { useColors } from "@/hooks/useColors";
 
 type SettingsPage =
   | "main"
+  | "general"
   | "playlists"
+  | "epg"
+  | "appearance"
   | "playback"
+  | "remote_control"
   | "parental"
   | "other"
   | "reminders"
@@ -43,21 +49,21 @@ type PinFlow =
   | null;
 
 function SettingRow({
-  icon,
   label,
   value,
   onPress,
   rightEl,
   last,
   destructive,
+  accent,
 }: {
-  icon: string;
   label: string;
   value?: string;
   onPress?: () => void;
   rightEl?: React.ReactNode;
   last?: boolean;
   destructive?: boolean;
+  accent?: boolean;
 }) {
   const colors = useColors();
   const content = (
@@ -65,24 +71,39 @@ function SettingRow({
       style={[
         rowStyles.row,
         {
-          borderBottomColor: colors.border,
+          borderBottomColor: "rgba(255,255,255,0.06)",
           borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
-          backgroundColor: colors.card,
         },
       ]}
     >
-      <View style={[rowStyles.iconWrap, { backgroundColor: destructive ? `${colors.destructive}20` : colors.secondary }]}>
-        <Feather name={icon as any} size={17} color={destructive ? colors.destructive : colors.mutedForeground} />
-      </View>
       <View style={rowStyles.info}>
-        <Text style={[rowStyles.label, { color: destructive ? colors.destructive : colors.foreground }]}>{label}</Text>
+        <Text
+          style={[
+            rowStyles.label,
+            {
+              color: destructive
+                ? "#f44336"
+                : accent
+                ? colors.primary
+                : "#fff",
+            },
+          ]}
+        >
+          {label}
+        </Text>
         {value !== undefined && (
-          <Text style={[rowStyles.value, { color: colors.mutedForeground }]}>{value}</Text>
+          <Text style={[rowStyles.value, { color: "rgba(255,255,255,0.45)" }]}>
+            {value}
+          </Text>
         )}
       </View>
-      {rightEl !== undefined ? rightEl : onPress ? (
-        <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
-      ) : null}
+      {rightEl !== undefined
+        ? rightEl
+        : onPress
+        ? (
+          <Feather name="chevron-right" size={16} color="rgba(255,255,255,0.3)" />
+        )
+        : null}
     </View>
   );
 
@@ -100,37 +121,98 @@ const rowStyles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 13,
+    paddingHorizontal: 20,
+    paddingVertical: 15,
     gap: 12,
   },
-  iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
-  },
   info: { flex: 1 },
-  label: { fontSize: 14, fontFamily: "Inter_500Medium" },
-  value: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  label: { fontSize: 15, fontFamily: "Inter_400Regular" },
+  value: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
 });
+
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <View style={shStyles.wrap}>
+      <Text style={shStyles.text}>{title}</Text>
+    </View>
+  );
+}
+const shStyles = StyleSheet.create({
+  wrap: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 10 },
+  text: {
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+    color: "#fff",
+  },
+});
+
+function Divider() {
+  return (
+    <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: "rgba(255,255,255,0.06)" }} />
+  );
+}
+
+function SwitchRow({
+  label,
+  sub,
+  value,
+  onValueChange,
+  last,
+  colors,
+}: {
+  label: string;
+  sub?: string;
+  value: boolean;
+  onValueChange: (v: boolean) => void;
+  last?: boolean;
+  colors: ReturnType<typeof useColors>;
+}) {
+  return (
+    <View
+      style={[
+        rowStyles.row,
+        {
+          borderBottomColor: "rgba(255,255,255,0.06)",
+          borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
+        },
+      ]}
+    >
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 15, fontFamily: "Inter_400Regular", color: "#fff" }}>
+          {label}
+        </Text>
+        {sub && (
+          <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.4)", marginTop: 2 }}>
+            {sub}
+          </Text>
+        )}
+      </View>
+      <Switch
+        value={value}
+        onValueChange={(v) => { Haptics.selectionAsync(); onValueChange(v); }}
+        trackColor={{ false: "rgba(255,255,255,0.15)", true: `${colors.primary}90` }}
+        thumbColor={value ? colors.primary : "#888"}
+        ios_backgroundColor="rgba(255,255,255,0.15)"
+      />
+    </View>
+  );
+}
 
 export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { playlists, activePlaylist, setActivePlaylist, removePlaylist, reminderSettings, updateReminderSettings, recordingSettings, updateRecordingSettings } = useIPTV();
   const {
-    isEnabled,
-    hasPin,
-    lockedGroups,
-    enableControls,
-    disableControls,
-    changePin,
-    verifyPin,
-    lockAllSession,
-  } = useParental();
+    playlists,
+    activePlaylist,
+    setActivePlaylist,
+    removePlaylist,
+    reminderSettings,
+    updateReminderSettings,
+    recordingSettings,
+    updateRecordingSettings,
+  } = useIPTV();
+  const { isEnabled, hasPin, lockedGroups, enableControls, disableControls, changePin, verifyPin, lockAllSession } = useParental();
 
   const [page, setPage] = useState<SettingsPage>("main");
   const [showAddPlaylist, setShowAddPlaylist] = useState(false);
@@ -141,22 +223,46 @@ export default function SettingsScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
+  const [generalSettings, setGeneralSettings] = useState({
+    autoStartOnBoot: false,
+    autoStartOnWake: false,
+    turnOnLastChannel: true,
+    switchToPiPOnHome: false,
+    confirmExitOnBack: false,
+  });
+
+  const [epgSettings, setEpgSettings] = useState({
+    pastDays: 7,
+    storeDescriptions: true,
+    updateIntervalHours: 24,
+    updateOnStart: false,
+    updateOnPlaylistChange: false,
+  });
+
+  const [appearanceSettings, setAppearanceSettings] = useState({
+    language: "System",
+    fontSize: "Medium",
+    colorTheme: "Dark · Blue",
+    transparency: 50,
+  });
+
+  const [isUpdatingEpg, setIsUpdatingEpg] = useState(false);
+
+  const updateGeneral = (patch: Partial<typeof generalSettings>) =>
+    setGeneralSettings((prev) => ({ ...prev, ...patch }));
+
   const handleRemove = (playlist: Playlist) => {
-    Alert.alert(
-      "Remove Playlist",
-      `Are you sure you want to remove "${playlist.name}"?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            removePlaylist(playlist.id);
-          },
+    Alert.alert("Remove Playlist", `Are you sure you want to remove "${playlist.name}"?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          removePlaylist(playlist.id);
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const pinTitle = () => {
@@ -170,12 +276,12 @@ export default function SettingsScreen() {
   };
 
   const pinSubtitle = () => {
-    if (pinFlow === "setup-new") return "Choose a 4-digit PIN to protect\nlocked channel groups";
+    if (pinFlow === "setup-new") return "Choose a 4-digit PIN";
     if (pinFlow === "setup-confirm") return "Enter the same PIN again to confirm";
-    if (pinFlow === "disable") return "Enter your current PIN to disable\nparental controls";
+    if (pinFlow === "disable") return "Enter your current PIN to disable parental controls";
     if (pinFlow === "change-old") return "Enter your current PIN first";
     if (pinFlow === "change-new") return "Now enter your new PIN";
-    if (pinFlow === "lock-groups") return "Verify your PIN to manage\nlocked groups";
+    if (pinFlow === "lock-groups") return "Verify your PIN to manage locked groups";
     return "";
   };
 
@@ -201,10 +307,6 @@ export default function SettingsScreen() {
       await enableControls(newPinBuffer);
       setNewPinBuffer(""); setPinFlow(null);
       Alert.alert("Parental Controls Enabled", "Your PIN has been set.");
-    } else if (pinFlow === "disable") {
-      setPinFlow(null);
-    } else if (pinFlow === "change-old") {
-      // stay in flow
     } else if (pinFlow === "change-new") {
       setNewPinBuffer(""); setPinFlow(null);
       Alert.alert("PIN Changed", "Your parental control PIN has been updated.");
@@ -215,11 +317,6 @@ export default function SettingsScreen() {
     }
   };
 
-  const openGroupLockManager = () => {
-    if (hasPin) setPinFlow("lock-groups");
-    else setShowGroupLock(true);
-  };
-
   const goBack = () => {
     Haptics.selectionAsync();
     if (page === "reminders" || page === "recording" || page === "vod") setPage("other");
@@ -228,327 +325,511 @@ export default function SettingsScreen() {
   };
 
   const pageTitle = () => {
-    if (page === "main") return "Settings";
-    if (page === "playlists") return "Playlists";
-    if (page === "playback") return "Playback";
-    if (page === "parental") return "Parental controls";
-    if (page === "other") return "Other";
-    if (page === "reminders") return "Reminders";
-    if (page === "recording") return "Recording";
-    if (page === "vod") return "VOD";
-    if (page === "about") return "About";
-    return "Settings";
+    const titles: Record<SettingsPage, string> = {
+      main: "Settings",
+      general: "General",
+      playlists: "Playlists",
+      epg: "EPG",
+      appearance: "Appearance",
+      playback: "Playback",
+      remote_control: "Remote control",
+      parental: "Parental controls",
+      other: "Other",
+      reminders: "Reminders",
+      recording: "Recording",
+      vod: "VOD",
+      about: "About",
+    };
+    return titles[page];
   };
 
+  const nav = (p: SettingsPage) => { Haptics.selectionAsync(); setPage(p); };
+
   const renderMain = () => (
-    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 16, paddingTop: 8 }}>
-      <View style={[styles.section, { borderColor: colors.border, backgroundColor: colors.card }]}>
-        <SettingRow icon="list" label="Playlists" value={`${playlists.length} playlist${playlists.length !== 1 ? "s" : ""}`} onPress={() => { Haptics.selectionAsync(); setPage("playlists"); }} />
-        <SettingRow icon="play-circle" label="Playback" onPress={() => { Haptics.selectionAsync(); setPage("playback"); }} />
-        <SettingRow icon="shield" label="Parental controls" value={isEnabled ? `${lockedGroups.length} group${lockedGroups.length !== 1 ? "s" : ""} locked` : "Off"} onPress={() => { Haptics.selectionAsync(); setPage("parental"); }} />
-        <SettingRow icon="more-horizontal" label="Other" onPress={() => { Haptics.selectionAsync(); setPage("other"); }} />
-        <SettingRow icon="info" label="About" onPress={() => { Haptics.selectionAsync(); setPage("about"); }} last />
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      <View style={styles.card}>
+        <SettingRow label="General" onPress={() => nav("general")} />
+        <Divider />
+        <SettingRow label="Playlists" onPress={() => nav("playlists")} />
+        <Divider />
+        <SettingRow label="EPG" onPress={() => nav("epg")} />
+        <Divider />
+        <SettingRow label="Appearance" onPress={() => nav("appearance")} />
+        <Divider />
+        <SettingRow label="Playback" onPress={() => nav("playback")} />
+        <Divider />
+        <SettingRow label="Remote control" onPress={() => nav("remote_control")} />
+        <Divider />
+        <SettingRow label="Parental controls" onPress={() => nav("parental")} />
+        <Divider />
+        <SettingRow label="Other" onPress={() => nav("other")} />
+        <Divider />
+        <SettingRow label="About" onPress={() => nav("about")} last />
+      </View>
+    </ScrollView>
+  );
+
+  const renderGeneral = () => (
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      <View style={styles.card}>
+        <SwitchRow
+          label="Auto start app on boot"
+          value={generalSettings.autoStartOnBoot}
+          onValueChange={(v) => updateGeneral({ autoStartOnBoot: v })}
+          colors={colors}
+        />
+        <Divider />
+        <SwitchRow
+          label="Auto start app on wake up from sleep mode"
+          sub="May not work on all devices"
+          value={generalSettings.autoStartOnWake}
+          onValueChange={(v) => updateGeneral({ autoStartOnWake: v })}
+          colors={colors}
+        />
+        <Divider />
+        <SwitchRow
+          label="Turn on last channel on app start"
+          value={generalSettings.turnOnLastChannel}
+          onValueChange={(v) => updateGeneral({ turnOnLastChannel: v })}
+          colors={colors}
+        />
+        <Divider />
+        <SwitchRow
+          label="Switch to picture-in-picture mode on press Home"
+          value={generalSettings.switchToPiPOnHome}
+          onValueChange={(v) => updateGeneral({ switchToPiPOnHome: v })}
+          colors={colors}
+        />
+        <Divider />
+        <SwitchRow
+          label="Confirm exit by second press Back"
+          value={generalSettings.confirmExitOnBack}
+          onValueChange={(v) => updateGeneral({ confirmExitOnBack: v })}
+          colors={colors}
+          last
+        />
+      </View>
+
+      <View style={[styles.card, { marginTop: 1 }]}>
+        <SettingRow label="User-Agent" value="Not set" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="UDP proxy (address:port)" value="Not set" onPress={() => {}} />
+      </View>
+
+      <View style={[styles.card, { marginTop: 1 }]}>
+        <SettingRow label="Back up data" onPress={() => Alert.alert("Backup", "Backup will be saved to device storage.")} />
+        <Divider />
+        <SettingRow label="Restore data" onPress={() => Alert.alert("Restore", "Select a backup file to restore.")} last />
       </View>
     </ScrollView>
   );
 
   const renderPlaylists = () => (
-    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 16, paddingTop: 8 }}>
-      {playlists.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Feather name="list" size={40} color={colors.mutedForeground} style={{ opacity: 0.4 }} />
-          <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No playlists added</Text>
-        </View>
-      ) : (
-        <View style={{ paddingHorizontal: 16, gap: 10 }}>
-          {playlists.map((playlist) => {
-            const isActive = activePlaylist?.id === playlist.id;
-            return (
-              <View
-                key={playlist.id}
-                style={[styles.playlistItem, { backgroundColor: isActive ? `${colors.primary}18` : colors.card, borderColor: isActive ? colors.primary : colors.border }]}
-              >
-                <TouchableOpacity style={styles.playlistMain} onPress={() => setActivePlaylist(playlist)} activeOpacity={0.7}>
-                  <View style={[styles.playlistIcon, { backgroundColor: colors.secondary }]}>
-                    <Feather
-                      name={playlist.type === "M3U" ? "link" : playlist.type === "XtreamCodes" ? "log-in" : "server"}
-                      size={18}
-                      color={isActive ? colors.primary : colors.mutedForeground}
-                    />
-                  </View>
-                  <View style={styles.playlistInfo}>
-                    <Text style={[styles.playlistName, { color: isActive ? colors.primary : colors.foreground }]} numberOfLines={1}>
-                      {playlist.name}
-                    </Text>
-                    <Text style={[styles.playlistMeta, { color: colors.mutedForeground }]}>
-                      {playlist.type} · {playlist.channels.length} channels · {playlist.movies.length} movies
-                    </Text>
-                  </View>
-                  {isActive && <Feather name="check-circle" size={18} color={colors.primary} />}
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleRemove(playlist)} style={[styles.removeBtn, { borderLeftColor: colors.border }]}>
-                  <Feather name="trash-2" size={18} color={colors.destructive} />
-                </TouchableOpacity>
-              </View>
-            );
-          })}
-        </View>
-      )}
-      <TouchableOpacity
-        onPress={() => setShowAddPlaylist(true)}
-        style={[styles.addBtn, { backgroundColor: colors.primary, marginHorizontal: 16, marginTop: 12 }]}
-        activeOpacity={0.85}
-      >
-        <Feather name="plus" size={18} color="#fff" />
-        <Text style={styles.addBtnText}>Add Playlist</Text>
-      </TouchableOpacity>
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      {playlists.map((playlist) => {
+        const isActive = activePlaylist?.id === playlist.id;
+        return (
+          <TouchableOpacity
+            key={playlist.id}
+            style={[styles.playlistRow, isActive && { backgroundColor: "rgba(255,255,255,0.05)" }]}
+            onPress={() => setActivePlaylist(playlist)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.playlistCheck, { borderColor: isActive ? colors.primary : "transparent", backgroundColor: isActive ? colors.primary : "rgba(255,255,255,0.1)" }]}>
+              {isActive && <Feather name="check" size={14} color="#fff" />}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.playlistName, { color: "#fff" }]} numberOfLines={1}>
+                {playlist.name}
+              </Text>
+              <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", marginTop: 2, fontFamily: "Inter_400Regular" }}>
+                Channels: {playlist.channels.length}, movies: {playlist.movies.length}, shows: {playlist.shows.length}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => handleRemove(playlist)} style={styles.deleteBtn}>
+              <Feather name="trash-2" size={17} color="#f44336" />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        );
+      })}
+
+      <View style={[styles.card, { marginTop: 12 }]}>
+        <SettingRow label="Playlists sorting" value="By name" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Add playlist" onPress={() => setShowAddPlaylist(true)} />
+        <Divider />
+        <SettingRow
+          label="Update all playlists"
+          onPress={() => Alert.alert("Update", "Updating all playlists...")}
+          last
+        />
+      </View>
+    </ScrollView>
+  );
+
+  const renderEpg = () => (
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      <View style={styles.card}>
+        <SettingRow label="EPG sources" onPress={() => {}} />
+        <Divider />
+        <SettingRow
+          label="Past days to keep EPG"
+          value={String(epgSettings.pastDays)}
+          onPress={() => {}}
+        />
+        <Divider />
+        <SwitchRow
+          label="Store program descriptions"
+          value={epgSettings.storeDescriptions}
+          onValueChange={(v) => setEpgSettings((p) => ({ ...p, storeDescriptions: v }))}
+          colors={colors}
+          last
+        />
+      </View>
+
+      <View style={styles.accentHeader}>
+        <Text style={[styles.accentHeaderText, { color: colors.primary }]}>Update options</Text>
+      </View>
+
+      <View style={styles.card}>
+        <SettingRow
+          label="Update interval, hours"
+          value={String(epgSettings.updateIntervalHours)}
+          onPress={() => {}}
+        />
+        <Divider />
+        <SwitchRow
+          label="Update on app start"
+          value={epgSettings.updateOnStart}
+          onValueChange={(v) => setEpgSettings((p) => ({ ...p, updateOnStart: v }))}
+          colors={colors}
+        />
+        <Divider />
+        <SwitchRow
+          label="Update on playlists change"
+          value={epgSettings.updateOnPlaylistChange}
+          onValueChange={(v) => setEpgSettings((p) => ({ ...p, updateOnPlaylistChange: v }))}
+          colors={colors}
+          last
+        />
+      </View>
+
+      <View style={[styles.card, { marginTop: 1 }]}>
+        <TouchableOpacity
+          style={[rowStyles.row, { borderBottomColor: "rgba(255,255,255,0.06)", borderBottomWidth: StyleSheet.hairlineWidth }]}
+          onPress={async () => {
+            Haptics.selectionAsync();
+            setIsUpdatingEpg(true);
+            await new Promise((r) => setTimeout(r, 2500));
+            setIsUpdatingEpg(false);
+            Alert.alert("EPG Updated", "All EPG data has been refreshed.");
+          }}
+          activeOpacity={0.7}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontFamily: "Inter_400Regular", color: "#fff" }}>Update EPG</Text>
+          </View>
+          {isUpdatingEpg && <ActivityIndicator size="small" color={colors.primary} />}
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={rowStyles.row}
+          onPress={() => {
+            Haptics.selectionAsync();
+            Alert.alert("Clear EPG", "This will remove all stored EPG data.", [
+              { text: "Cancel", style: "cancel" },
+              { text: "Clear", style: "destructive", onPress: () => {} },
+            ]);
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={{ fontSize: 15, fontFamily: "Inter_400Regular", color: "#fff" }}>Clear EPG</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={[styles.footerNote, { color: "rgba(255,255,255,0.3)" }]}>
+        Latest update status: Not updated
+      </Text>
+    </ScrollView>
+  );
+
+  const renderAppearance = () => (
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      <View style={styles.card}>
+        <SettingRow label="TV guide" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Player" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Groups" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Logos" onPress={() => {}} last />
+      </View>
+      <View style={[styles.card, { marginTop: 12 }]}>
+        <SettingRow label="Language" value={appearanceSettings.language} onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Font size" value={appearanceSettings.fontSize} onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Color theme" value={appearanceSettings.colorTheme} onPress={() => {}} />
+        <Divider />
+        <SettingRow
+          label="User interface transparency, %"
+          value={String(appearanceSettings.transparency)}
+          onPress={() => {}}
+          last
+        />
+      </View>
     </ScrollView>
   );
 
   const renderPlayback = () => (
-    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 16, paddingTop: 8 }}>
-      <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>VIDEO</Text>
-      <View style={[styles.section, { borderColor: colors.border, backgroundColor: colors.card }]}>
-        <SettingRow icon="monitor" label="Video decoder" value="Auto" onPress={() => {}} />
-        <SettingRow icon="zap" label="Hardware acceleration" value="Auto" onPress={() => {}} />
-        <SettingRow icon="maximize" label="Aspect ratio" value="Auto fit" onPress={() => {}} last />
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      <View style={styles.card}>
+        <SettingRow label="Video decoder" value="Auto" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Hardware acceleration" value="Auto" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Aspect ratio" value="Auto fit" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Audio track" value="Default" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Audio boost" value="Off" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Subtitle track" value="None" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Subtitle size" value="Medium" onPress={() => {}} last />
       </View>
-      <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>AUDIO</Text>
-      <View style={[styles.section, { borderColor: colors.border, backgroundColor: colors.card }]}>
-        <SettingRow icon="volume-2" label="Audio track" value="Default" onPress={() => {}} />
-        <SettingRow icon="headphones" label="Audio boost" value="Off" onPress={() => {}} last />
+    </ScrollView>
+  );
+
+  const [remoteSettings, setRemoteSettings] = useState({
+    rwffPauseForCatchup: true,
+    rwForLiveStream: false,
+    leftRightForCatchup: false,
+    leftForLiveStream: false,
+    downUpForCatchup: false,
+    downForLiveStream: false,
+  });
+
+  const renderRemoteControl = () => (
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      <View style={styles.card}>
+        <SettingRow label="TV guide" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Player" onPress={() => {}} last />
       </View>
-      <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>SUBTITLES</Text>
-      <View style={[styles.section, { borderColor: colors.border, backgroundColor: colors.card }]}>
-        <SettingRow icon="type" label="Subtitle track" value="None" onPress={() => {}} />
-        <SettingRow icon="font" label="Subtitle size" value="Medium" onPress={() => {}} last />
+
+      <View style={styles.accentHeader}>
+        <Text style={[styles.accentHeaderText, { color: colors.primary }]}>Seeking options</Text>
+      </View>
+
+      <View style={styles.card}>
+        <SwitchRow
+          label="Use RW/FF/Pause for seeking/pause while watching catch-up"
+          value={remoteSettings.rwffPauseForCatchup}
+          onValueChange={(v) => setRemoteSettings((p) => ({ ...p, rwffPauseForCatchup: v }))}
+          colors={colors}
+        />
+        <Divider />
+        <SwitchRow
+          label="Use RW to rewind live stream with catch-up"
+          value={remoteSettings.rwForLiveStream}
+          onValueChange={(v) => setRemoteSettings((p) => ({ ...p, rwForLiveStream: v }))}
+          colors={colors}
+        />
+        <Divider />
+        <SwitchRow
+          label="Use Left/Right for seeking while watching catch-up"
+          value={remoteSettings.leftRightForCatchup}
+          onValueChange={(v) => setRemoteSettings((p) => ({ ...p, leftRightForCatchup: v }))}
+          colors={colors}
+        />
+        <Divider />
+        <SwitchRow
+          label="Use Left to rewind live stream with catch-up"
+          value={remoteSettings.leftForLiveStream}
+          onValueChange={(v) => setRemoteSettings((p) => ({ ...p, leftForLiveStream: v }))}
+          colors={colors}
+        />
+        <Divider />
+        <SwitchRow
+          label="Use Down/Up for seeking while watching catch-up"
+          value={remoteSettings.downUpForCatchup}
+          onValueChange={(v) => setRemoteSettings((p) => ({ ...p, downUpForCatchup: v }))}
+          colors={colors}
+          last
+        />
       </View>
     </ScrollView>
   );
 
   const renderParental = () => (
-    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 16, paddingTop: 8 }}>
-      <View style={[styles.section, { borderColor: colors.border, backgroundColor: colors.card }]}>
-        <View style={rowStyles.row}>
-          <View style={[rowStyles.iconWrap, { backgroundColor: isEnabled ? `${colors.destructive}20` : colors.secondary }]}>
-            <Feather name={isEnabled ? "shield" : "shield-off"} size={17} color={isEnabled ? colors.destructive : colors.mutedForeground} />
-          </View>
-          <View style={rowStyles.info}>
-            <Text style={[rowStyles.label, { color: colors.foreground }]}>
-              {isEnabled ? "Controls enabled" : "Controls disabled"}
-            </Text>
-            <Text style={[rowStyles.value, { color: colors.mutedForeground }]}>
-              {isEnabled ? `${lockedGroups.length} group${lockedGroups.length !== 1 ? "s" : ""} locked with PIN` : "Set a PIN to restrict access"}
-            </Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => { Haptics.selectionAsync(); isEnabled ? setPinFlow("disable") : setPinFlow("setup-new"); }}
-            style={[styles.toggleBtn, { backgroundColor: isEnabled ? colors.destructive : colors.primary }]}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.toggleBtnText}>{isEnabled ? "Disable" : "Enable"}</Text>
-          </TouchableOpacity>
-        </View>
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      <View style={styles.card}>
+        <SwitchRow
+          label="Off"
+          value={!isEnabled}
+          onValueChange={(v) => {
+            if (v) {
+              if (isEnabled) setPinFlow("disable");
+            } else {
+              if (!isEnabled) setPinFlow("setup-new");
+            }
+          }}
+          colors={colors}
+        />
+        <Divider />
+        <SettingRow label="Change PIN" onPress={() => { Haptics.selectionAsync(); setPinFlow("change-old"); }} />
+        <Divider />
+        <SettingRow label="PIN input method" value="Picker" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Don't require PIN after unlocking" value="Always require" onPress={() => {}} />
+        <Divider />
+        <SwitchRow
+          label="Don't require for channels only"
+          value={false}
+          onValueChange={() => {}}
+          colors={colors}
+          last
+        />
+      </View>
+
+      <View style={styles.accentHeader}>
+        <Text style={[styles.accentHeaderText, { color: colors.primary }]}>Require PIN for</Text>
+      </View>
+
+      <View style={styles.card}>
+        <SwitchRow label="Settings" value={false} onValueChange={() => {}} colors={colors} />
+        <Divider />
+        <SwitchRow label="Settings | Playlists" value={false} onValueChange={() => {}} colors={colors} />
+        <Divider />
+        <SwitchRow label="Settings | EPG" value={false} onValueChange={() => {}} colors={colors} />
+        <Divider />
+        <SwitchRow
+          label="Channel options"
+          value={false}
+          onValueChange={() => {}}
+          colors={colors}
+          last
+        />
       </View>
 
       {isEnabled && (
-        <View style={[styles.section, { borderColor: colors.border, backgroundColor: colors.card, marginTop: 12 }]}>
-          <SettingRow icon="lock" label="Manage locked groups" value={`${lockedGroups.length} group${lockedGroups.length !== 1 ? "s" : ""} locked`} onPress={openGroupLockManager} />
-          <SettingRow icon="key" label="Change PIN" onPress={() => { Haptics.selectionAsync(); setPinFlow("change-old"); }} />
-          <SettingRow icon="lock" label="Lock all now" onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); lockAllSession(); Alert.alert("Session Locked", "All temporarily unlocked groups have been re-locked."); }} destructive last />
+        <View style={[styles.card, { marginTop: 12 }]}>
+          <SettingRow
+            label="Manage locked groups"
+            value={`${lockedGroups.length} group${lockedGroups.length !== 1 ? "s" : ""} locked`}
+            onPress={() => {
+              Haptics.selectionAsync();
+              if (hasPin) setPinFlow("lock-groups");
+              else setShowGroupLock(true);
+            }}
+          />
+          <Divider />
+          <SettingRow
+            label="Lock all now"
+            destructive
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              lockAllSession();
+            }}
+            last
+          />
         </View>
       )}
     </ScrollView>
   );
 
   const renderOther = () => (
-    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 16, paddingTop: 8 }}>
-      <View style={[styles.section, { borderColor: colors.border, backgroundColor: colors.card }]}>
-        <SettingRow icon="bell" label="Reminders" onPress={() => { Haptics.selectionAsync(); setPage("reminders"); }} />
-        <SettingRow icon="video" label="Recording" onPress={() => { Haptics.selectionAsync(); setPage("recording"); }} />
-        <SettingRow icon="film" label="VOD" onPress={() => { Haptics.selectionAsync(); setPage("vod"); }} last />
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      <View style={styles.card}>
+        <SettingRow label="Search" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Reminders" onPress={() => nav("reminders")} />
+        <Divider />
+        <SettingRow label="Recording" onPress={() => nav("recording")} />
+        <Divider />
+        <SettingRow label="VOD" onPress={() => nav("vod")} last />
       </View>
     </ScrollView>
   );
 
   const renderReminders = () => (
-    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 16, paddingTop: 8 }}>
-      <View style={[styles.section, { borderColor: colors.border, backgroundColor: colors.card }]}>
-        {/* Remind before program start */}
-        <View style={[rowStyles.row, { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
-          <View style={[rowStyles.iconWrap, { backgroundColor: colors.secondary }]}>
-            <Feather name="clock" size={17} color={colors.mutedForeground} />
-          </View>
-          <View style={rowStyles.info}>
-            <Text style={[rowStyles.label, { color: colors.foreground }]}>Remind before program start, min</Text>
-            <Text style={[rowStyles.value, { color: colors.mutedForeground }]}>{reminderSettings.remindBeforeMinutes}</Text>
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      <View style={styles.card}>
+        <View style={[rowStyles.row, { borderBottomColor: "rgba(255,255,255,0.06)", borderBottomWidth: StyleSheet.hairlineWidth }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontFamily: "Inter_400Regular", color: "#fff" }}>Remind before program start, min</Text>
+            <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", marginTop: 2, fontFamily: "Inter_400Regular" }}>{reminderSettings.remindBeforeMinutes}</Text>
           </View>
           <View style={styles.stepper}>
-            <TouchableOpacity
-              style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={() => { Haptics.selectionAsync(); updateReminderSettings({ remindBeforeMinutes: Math.max(1, reminderSettings.remindBeforeMinutes - 1) }); }}
-              activeOpacity={0.7}
-            >
-              <Feather name="minus" size={13} color={colors.foreground} />
+            <TouchableOpacity style={[styles.stepBtn, { borderColor: "rgba(255,255,255,0.1)" }]} onPress={() => { Haptics.selectionAsync(); updateReminderSettings({ remindBeforeMinutes: Math.max(1, reminderSettings.remindBeforeMinutes - 1) }); }}>
+              <Feather name="minus" size={14} color="#fff" />
             </TouchableOpacity>
-            <Text style={[styles.stepValue, { color: colors.foreground }]}>{reminderSettings.remindBeforeMinutes}</Text>
-            <TouchableOpacity
-              style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={() => { Haptics.selectionAsync(); updateReminderSettings({ remindBeforeMinutes: Math.min(60, reminderSettings.remindBeforeMinutes + 1) }); }}
-              activeOpacity={0.7}
-            >
-              <Feather name="plus" size={13} color={colors.foreground} />
+            <Text style={[styles.stepValue, { color: "#fff" }]}>{reminderSettings.remindBeforeMinutes}</Text>
+            <TouchableOpacity style={[styles.stepBtn, { borderColor: "rgba(255,255,255,0.1)" }]} onPress={() => { Haptics.selectionAsync(); updateReminderSettings({ remindBeforeMinutes: Math.min(60, reminderSettings.remindBeforeMinutes + 1) }); }}>
+              <Feather name="plus" size={14} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* Popup timeout */}
-        <View style={[rowStyles.row, { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
-          <View style={[rowStyles.iconWrap, { backgroundColor: colors.secondary }]}>
-            <Feather name="alert-circle" size={17} color={colors.mutedForeground} />
-          </View>
-          <View style={rowStyles.info}>
-            <Text style={[rowStyles.label, { color: colors.foreground }]}>Popup timeout, sec</Text>
-            <Text style={[rowStyles.value, { color: colors.mutedForeground }]}>{reminderSettings.popupTimeoutSecs}</Text>
+        <View style={[rowStyles.row, { borderBottomColor: "rgba(255,255,255,0.06)", borderBottomWidth: StyleSheet.hairlineWidth }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontFamily: "Inter_400Regular", color: "#fff" }}>Popup timeout, sec</Text>
+            <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", marginTop: 2, fontFamily: "Inter_400Regular" }}>{reminderSettings.popupTimeoutSecs}</Text>
           </View>
           <View style={styles.stepper}>
-            <TouchableOpacity
-              style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={() => { Haptics.selectionAsync(); updateReminderSettings({ popupTimeoutSecs: Math.max(5, reminderSettings.popupTimeoutSecs - 5) }); }}
-              activeOpacity={0.7}
-            >
-              <Feather name="minus" size={13} color={colors.foreground} />
+            <TouchableOpacity style={[styles.stepBtn, { borderColor: "rgba(255,255,255,0.1)" }]} onPress={() => { Haptics.selectionAsync(); updateReminderSettings({ popupTimeoutSecs: Math.max(5, reminderSettings.popupTimeoutSecs - 5) }); }}>
+              <Feather name="minus" size={14} color="#fff" />
             </TouchableOpacity>
-            <Text style={[styles.stepValue, { color: colors.foreground }]}>{reminderSettings.popupTimeoutSecs}</Text>
-            <TouchableOpacity
-              style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={() => { Haptics.selectionAsync(); updateReminderSettings({ popupTimeoutSecs: Math.min(60, reminderSettings.popupTimeoutSecs + 5) }); }}
-              activeOpacity={0.7}
-            >
-              <Feather name="plus" size={13} color={colors.foreground} />
+            <Text style={[styles.stepValue, { color: "#fff" }]}>{reminderSettings.popupTimeoutSecs}</Text>
+            <TouchableOpacity style={[styles.stepBtn, { borderColor: "rgba(255,255,255,0.1)" }]} onPress={() => { Haptics.selectionAsync(); updateReminderSettings({ popupTimeoutSecs: Math.min(60, reminderSettings.popupTimeoutSecs + 5) }); }}>
+              <Feather name="plus" size={14} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* Default action */}
-        <View style={[rowStyles.row, { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
-          <View style={[rowStyles.iconWrap, { backgroundColor: colors.secondary }]}>
-            <Feather name="play" size={17} color={colors.mutedForeground} />
-          </View>
-          <View style={rowStyles.info}>
-            <Text style={[rowStyles.label, { color: colors.foreground }]}>Default action</Text>
-            <Text style={[rowStyles.value, { color: colors.mutedForeground }]}>
-              {reminderSettings.defaultAction === "watch" ? "Watch" : "Dismiss"}
-            </Text>
-          </View>
-          <View style={{ flexDirection: "row", gap: 6 }}>
-            {(["watch", "dismiss"] as const).map((action) => (
-              <TouchableOpacity
-                key={action}
-                style={[
-                  styles.actionChip,
-                  {
-                    backgroundColor: reminderSettings.defaultAction === action ? colors.primary : colors.secondary,
-                    borderColor: reminderSettings.defaultAction === action ? colors.primary : colors.border,
-                  },
-                ]}
-                onPress={() => { Haptics.selectionAsync(); updateReminderSettings({ defaultAction: action }); }}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.actionChipText, { color: reminderSettings.defaultAction === action ? "#fff" : colors.mutedForeground }]}>
-                  {action === "watch" ? "Watch" : "Dismiss"}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Wake from sleep */}
-        <View style={rowStyles.row}>
-          <View style={[rowStyles.iconWrap, { backgroundColor: colors.secondary }]}>
-            <Feather name="moon" size={17} color={colors.mutedForeground} />
-          </View>
-          <View style={rowStyles.info}>
-            <Text style={[rowStyles.label, { color: colors.foreground }]}>Wake up from sleep mode</Text>
-            <Text style={[rowStyles.value, { color: colors.mutedForeground }]}>May not work on all devices</Text>
-          </View>
-          <Switch
-            value={reminderSettings.wakeFromSleep}
-            onValueChange={(v) => { Haptics.selectionAsync(); updateReminderSettings({ wakeFromSleep: v }); }}
-            trackColor={{ false: colors.border, true: `${colors.primary}80` }}
-            thumbColor={reminderSettings.wakeFromSleep ? colors.primary : colors.mutedForeground}
-            ios_backgroundColor={colors.border}
-          />
-        </View>
+        <SwitchRow
+          label="Wake up from sleep mode"
+          sub="May not work on all devices"
+          value={reminderSettings.wakeFromSleep}
+          onValueChange={(v) => updateReminderSettings({ wakeFromSleep: v })}
+          colors={colors}
+          last
+        />
       </View>
     </ScrollView>
   );
 
   const renderRecording = () => (
-    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 16, paddingTop: 8 }}>
-      <View style={[styles.section, { borderColor: colors.border, backgroundColor: colors.card }]}>
-        <SettingRow
-          icon="folder"
-          label="Recordings folder"
-          value={recordingSettings.recordingsFolder}
-          onPress={() => {}}
-          last
-        />
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      <View style={styles.card}>
+        <SettingRow label="Recordings folder" value={recordingSettings.recordingsFolder} onPress={() => {}} last />
       </View>
-
-      <View style={[styles.section, { borderColor: colors.border, backgroundColor: colors.card, marginTop: 12 }]}>
-        {/* Start before */}
-        <View style={[rowStyles.row, { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
-          <View style={[rowStyles.iconWrap, { backgroundColor: colors.secondary }]}>
-            <Feather name="skip-back" size={17} color={colors.mutedForeground} />
-          </View>
-          <View style={rowStyles.info}>
-            <Text style={[rowStyles.label, { color: colors.foreground }]}>Start recording before program start, min</Text>
-            <Text style={[rowStyles.value, { color: colors.mutedForeground }]}>{recordingSettings.startBeforeMinutes}</Text>
+      <View style={[styles.card, { marginTop: 12 }]}>
+        <View style={[rowStyles.row, { borderBottomColor: "rgba(255,255,255,0.06)", borderBottomWidth: StyleSheet.hairlineWidth }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontFamily: "Inter_400Regular", color: "#fff" }}>Start recording before program start, min</Text>
+            <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", marginTop: 2, fontFamily: "Inter_400Regular" }}>{recordingSettings.startBeforeMinutes}</Text>
           </View>
           <View style={styles.stepper}>
-            <TouchableOpacity
-              style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={() => { Haptics.selectionAsync(); updateRecordingSettings({ startBeforeMinutes: Math.max(0, recordingSettings.startBeforeMinutes - 1) }); }}
-              activeOpacity={0.7}
-            >
-              <Feather name="minus" size={13} color={colors.foreground} />
+            <TouchableOpacity style={[styles.stepBtn, { borderColor: "rgba(255,255,255,0.1)" }]} onPress={() => { Haptics.selectionAsync(); updateRecordingSettings({ startBeforeMinutes: Math.max(0, recordingSettings.startBeforeMinutes - 1) }); }}>
+              <Feather name="minus" size={14} color="#fff" />
             </TouchableOpacity>
-            <Text style={[styles.stepValue, { color: colors.foreground }]}>{recordingSettings.startBeforeMinutes}</Text>
-            <TouchableOpacity
-              style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={() => { Haptics.selectionAsync(); updateRecordingSettings({ startBeforeMinutes: Math.min(60, recordingSettings.startBeforeMinutes + 1) }); }}
-              activeOpacity={0.7}
-            >
-              <Feather name="plus" size={13} color={colors.foreground} />
+            <Text style={[styles.stepValue, { color: "#fff" }]}>{recordingSettings.startBeforeMinutes}</Text>
+            <TouchableOpacity style={[styles.stepBtn, { borderColor: "rgba(255,255,255,0.1)" }]} onPress={() => { Haptics.selectionAsync(); updateRecordingSettings({ startBeforeMinutes: Math.min(60, recordingSettings.startBeforeMinutes + 1) }); }}>
+              <Feather name="plus" size={14} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* Stop after */}
         <View style={rowStyles.row}>
-          <View style={[rowStyles.iconWrap, { backgroundColor: colors.secondary }]}>
-            <Feather name="skip-forward" size={17} color={colors.mutedForeground} />
-          </View>
-          <View style={rowStyles.info}>
-            <Text style={[rowStyles.label, { color: colors.foreground }]}>Stop recording after program end, min</Text>
-            <Text style={[rowStyles.value, { color: colors.mutedForeground }]}>{recordingSettings.stopAfterMinutes}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontFamily: "Inter_400Regular", color: "#fff" }}>Stop recording after program end, min</Text>
+            <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", marginTop: 2, fontFamily: "Inter_400Regular" }}>{recordingSettings.stopAfterMinutes}</Text>
           </View>
           <View style={styles.stepper}>
-            <TouchableOpacity
-              style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={() => { Haptics.selectionAsync(); updateRecordingSettings({ stopAfterMinutes: Math.max(0, recordingSettings.stopAfterMinutes - 1) }); }}
-              activeOpacity={0.7}
-            >
-              <Feather name="minus" size={13} color={colors.foreground} />
+            <TouchableOpacity style={[styles.stepBtn, { borderColor: "rgba(255,255,255,0.1)" }]} onPress={() => { Haptics.selectionAsync(); updateRecordingSettings({ stopAfterMinutes: Math.max(0, recordingSettings.stopAfterMinutes - 1) }); }}>
+              <Feather name="minus" size={14} color="#fff" />
             </TouchableOpacity>
-            <Text style={[styles.stepValue, { color: colors.foreground }]}>{recordingSettings.stopAfterMinutes}</Text>
-            <TouchableOpacity
-              style={[styles.stepBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-              onPress={() => { Haptics.selectionAsync(); updateRecordingSettings({ stopAfterMinutes: Math.min(60, recordingSettings.stopAfterMinutes + 1) }); }}
-              activeOpacity={0.7}
-            >
-              <Feather name="plus" size={13} color={colors.foreground} />
+            <Text style={[styles.stepValue, { color: "#fff" }]}>{recordingSettings.stopAfterMinutes}</Text>
+            <TouchableOpacity style={[styles.stepBtn, { borderColor: "rgba(255,255,255,0.1)" }]} onPress={() => { Haptics.selectionAsync(); updateRecordingSettings({ stopAfterMinutes: Math.min(60, recordingSettings.stopAfterMinutes + 1) }); }}>
+              <Feather name="plus" size={14} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
@@ -557,29 +838,39 @@ export default function SettingsScreen() {
   );
 
   const renderVOD = () => (
-    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 16, paddingTop: 8 }}>
-      <View style={[styles.section, { borderColor: colors.border, backgroundColor: colors.card }]}>
-        <SettingRow icon="film" label="Default quality" value="Auto" onPress={() => {}} />
-        <SettingRow icon="download" label="Download location" value="Default" onPress={() => {}} />
-        <SettingRow icon="wifi" label="Stream over Wi-Fi only" rightEl={<Switch value={false} onValueChange={() => {}} trackColor={{ false: "#555", true: "#4e9af1" }} />} last />
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      <View style={styles.card}>
+        <SettingRow label="Default quality" value="Auto" onPress={() => {}} />
+        <Divider />
+        <SettingRow label="Download location" value="Default" onPress={() => {}} />
+        <Divider />
+        <SwitchRow label="Stream over Wi-Fi only" value={false} onValueChange={() => {}} colors={colors} last />
       </View>
     </ScrollView>
   );
 
   const renderAbout = () => (
-    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 16, paddingTop: 8 }}>
-      <View style={[styles.section, { borderColor: colors.border, backgroundColor: colors.card }]}>
-        <SettingRow icon="package" label="App version" value="1.0.0" last={false} />
-        <SettingRow icon="code" label="Supported formats" value="M3U, Xtream Codes, Stalker Portal" last={false} />
-        <SettingRow icon="globe" label="Website" value="tivimate.com" last />
+    <ScrollView contentContainerStyle={{ paddingBottom: bottomPad + 24 }}>
+      <View style={styles.card}>
+        <SettingRow label="App version" value="1.0.0" />
+        <Divider />
+        <SettingRow label="Build" value="2026.05.10" />
+        <Divider />
+        <SettingRow label="Supported formats" value="M3U, Xtream Codes, Stalker Portal" />
+        <Divider />
+        <SettingRow label="Website" value="tivimate.com" last />
       </View>
     </ScrollView>
   );
 
   const renderPage = () => {
     if (page === "main") return renderMain();
+    if (page === "general") return renderGeneral();
     if (page === "playlists") return renderPlaylists();
+    if (page === "epg") return renderEpg();
+    if (page === "appearance") return renderAppearance();
     if (page === "playback") return renderPlayback();
+    if (page === "remote_control") return renderRemoteControl();
     if (page === "parental") return renderParental();
     if (page === "other") return renderOther();
     if (page === "reminders") return renderReminders();
@@ -590,14 +881,19 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+    <View style={[styles.container, { backgroundColor: "#0d0d0f" }]}>
+      <StatusBar barStyle="light-content" backgroundColor="#0d0d0f" />
 
-      <View style={[styles.header, { paddingTop: topPad + 8, backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+      <View
+        style={[
+          styles.header,
+          { paddingTop: topPad + 4, backgroundColor: "#161618", borderBottomColor: "rgba(255,255,255,0.07)" },
+        ]}
+      >
         <TouchableOpacity onPress={goBack} style={styles.backBtn}>
-          <Feather name="arrow-left" size={22} color={colors.foreground} />
+          <Feather name="arrow-left" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>{pageTitle()}</Text>
+        <Text style={[styles.headerTitle, { color: "#fff" }]}>{pageTitle()}</Text>
         <View style={{ width: 36 }} />
       </View>
 
@@ -623,92 +919,73 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
+    paddingHorizontal: 8,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  backBtn: { width: 36, height: 36, justifyContent: "center", alignItems: "center" },
+  backBtn: { width: 44, height: 44, justifyContent: "center", alignItems: "center" },
   headerTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold" },
-  sectionLabel: {
-    fontSize: 10,
-    letterSpacing: 1.5,
+  card: {
+    backgroundColor: "#1a1b1e",
+    marginHorizontal: 0,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.07)",
+    marginTop: 12,
+  },
+  accentHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 6,
+  },
+  accentHeaderText: {
+    fontSize: 14,
     fontFamily: "Inter_600SemiBold",
-    marginBottom: 6,
-    marginTop: 16,
-    marginHorizontal: 16,
-    textTransform: "uppercase",
   },
-  section: {
-    marginHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-    marginTop: 8,
+  footerNote: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    paddingHorizontal: 20,
+    paddingTop: 10,
   },
-  emptyContainer: { alignItems: "center", paddingTop: 60, gap: 12 },
-  emptyText: { fontSize: 14, fontFamily: "Inter_400Regular" },
-  playlistItem: {
+  playlistRow: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 10,
-    borderWidth: 1,
-    overflow: "hidden",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    gap: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(255,255,255,0.06)",
   },
-  playlistMain: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
-    gap: 12,
-  },
-  playlistIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+  playlistCheck: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
     justifyContent: "center",
     alignItems: "center",
   },
-  playlistInfo: { flex: 1 },
-  playlistName: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  playlistMeta: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
-  removeBtn: {
-    width: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    borderLeftWidth: 1,
-    alignSelf: "stretch",
+  playlistName: {
+    fontSize: 15,
+    fontFamily: "Inter_500Medium",
   },
-  addBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    height: 48,
-    borderRadius: 10,
+  deleteBtn: {
+    padding: 6,
   },
-  addBtnText: { color: "#fff", fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  toggleBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8 },
-  toggleBtnText: { color: "#fff", fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  stepper: { flexDirection: "row", alignItems: "center", gap: 6 },
+  stepper: { flexDirection: "row", alignItems: "center", gap: 8 },
   stepBtn: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
   },
   stepValue: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: "Inter_600SemiBold",
     minWidth: 28,
     textAlign: "center",
   },
-  actionChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  actionChipText: { fontSize: 12, fontFamily: "Inter_500Medium" },
 });

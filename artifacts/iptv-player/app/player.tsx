@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { ResizeMode, Video } from "expo-av";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -22,6 +22,7 @@ import { useColors } from "@/hooks/useColors";
 import { useIPTV } from "@/context/IPTVContext";
 import { usePiP } from "@/context/PiPContext";
 import { MultiviewScreen } from "@/components/MultiviewScreen";
+import { EpgOverlay } from "@/components/EpgOverlay";
 
 function formatTime(ms: number) {
   const totalSec = Math.floor(ms / 1000);
@@ -221,6 +222,7 @@ function PlayerToolbar({
   onMultiview,
   onPiP,
   onSleepTimer,
+  onEpg,
   sleepActive,
   colors,
   bottomPad,
@@ -230,6 +232,7 @@ function PlayerToolbar({
   onMultiview: () => void;
   onPiP: () => void;
   onSleepTimer: () => void;
+  onEpg: () => void;
   sleepActive: boolean;
   colors: ReturnType<typeof useColors>;
   bottomPad: number;
@@ -241,6 +244,7 @@ function PlayerToolbar({
   const row1: ToolbarItem[] = [
     { icon: "search", label: "Search" },
     { icon: "list", label: "Channels list" },
+    { icon: "calendar", label: "TV guide", onPress: onEpg },
     { icon: "circle", label: "Recordings" },
     { icon: "layout", label: "Multiview", onPress: onMultiview },
     { icon: "maximize", label: "Picture-in-picture", onPress: onPiP },
@@ -432,12 +436,19 @@ export default function PlayerScreen() {
     : url;
 
   const { startPiP } = usePiP();
+  const { activePlaylist } = useIPTV();
+
+  const channelEpg = useMemo(() => {
+    if (!channelId || !activePlaylist) return undefined;
+    return activePlaylist.channels.find((c) => c.id === channelId)?.epg;
+  }, [channelId, activePlaylist]);
 
   const [status, setStatus] = useState<any>({});
   const [showControls, setShowControls] = useState(true);
   const [showToolbar, setShowToolbar] = useState(false);
   const [isBuffering, setIsBuffering] = useState(true);
   const [showMultiview, setShowMultiview] = useState(false);
+  const [showEpg, setShowEpg] = useState(false);
   const controlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [sleepTimerEnd, setSleepTimerEnd] = useState<number | null>(null);
@@ -700,6 +711,11 @@ export default function PlayerScreen() {
                     setShowToolbar(false);
                     setShowSleepTimer(true);
                   }}
+                  onEpg={() => {
+                    setShowToolbar(false);
+                    setShowControls(false);
+                    setShowEpg(true);
+                  }}
                   sleepActive={sleepActiveMinutes > 0}
                   colors={colors}
                   bottomPad={bottomPad}
@@ -718,6 +734,31 @@ export default function PlayerScreen() {
         onClose={() => {
           setShowMultiview(false);
           setShowControls(true);
+        }}
+      />
+
+      <EpgOverlay
+        visible={showEpg}
+        channelName={name ?? "Unknown"}
+        epgData={channelEpg}
+        onClose={() => {
+          setShowEpg(false);
+          setShowControls(true);
+        }}
+        onCatchUp={(prog) => {
+          setShowEpg(false);
+          if (streamUrl) {
+            router.replace({
+              pathname: "/player",
+              params: {
+                url: streamUrl,
+                name: name ?? "",
+                channelId: channelId ?? "",
+                catchUpStart: String(prog.startTime),
+                catchUpEnd: String(prog.endTime),
+              },
+            });
+          }
         }}
       />
 
