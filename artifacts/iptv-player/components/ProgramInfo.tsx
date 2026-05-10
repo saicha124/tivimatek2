@@ -3,7 +3,7 @@ import { Image } from "expo-image";
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
-import { Channel, useIPTV } from "@/context/IPTVContext";
+import { Channel, EPGProgram, useIPTV } from "@/context/IPTVContext";
 import { useColors } from "@/hooks/useColors";
 
 function formatTime(ts: number) {
@@ -22,16 +22,21 @@ interface ProgramInfoProps {
 
 export function ProgramInfo({ onPlay }: ProgramInfoProps) {
   const colors = useColors();
-  const { selectedChannel, favorites, toggleFavorite } = useIPTV();
+  const { selectedChannel, activePlaylist, stalkerEpgData, favorites, toggleFavorite } = useIPTV();
 
   if (!selectedChannel) return null;
 
   const now = Date.now();
-  const currentProg = selectedChannel.epg?.find(
-    (p) => p.startTime <= now && p.endTime >= now
-  );
-  const nextProg = selectedChannel.epg
-    ?.filter((p) => p.startTime > now)
+
+  // Use real Stalker EPG when available, otherwise fall back to channel.epg
+  const epgSource: EPGProgram[] =
+    (activePlaylist?.type === "StalkerPortal" && stalkerEpgData[selectedChannel.id]?.length)
+      ? stalkerEpgData[selectedChannel.id]
+      : (selectedChannel.epg ?? []);
+
+  const currentProg = epgSource.find((p) => p.startTime <= now && p.endTime >= now);
+  const nextProg = epgSource
+    .filter((p) => p.startTime > now)
     .sort((a, b) => a.startTime - b.startTime)[0];
 
   const isFav = favorites.includes(selectedChannel.id);

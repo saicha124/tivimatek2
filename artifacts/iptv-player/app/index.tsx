@@ -21,6 +21,7 @@ import { GroupList } from "@/components/GroupList";
 import { MoviesView } from "@/components/MoviesView";
 import { MyListView } from "@/components/MyListView";
 import { PlaylistSwitcher } from "@/components/PlaylistSwitcher";
+import { NowNextBar } from "@/components/NowNextBar";
 import { ProgramInfo } from "@/components/ProgramInfo";
 import { RecordingsList } from "@/components/RecordingsList";
 import { SearchModal } from "@/components/SearchModal";
@@ -221,6 +222,9 @@ export default function HomeScreen() {
                   manageFavoritesMode={manageFavoritesMode}
                   onExitManageFavorites={() => setManageFavoritesMode(false)}
                 />
+                {selectedChannel && !manageFavoritesMode && (
+                  <NowNextBar onPlay={() => handlePlayChannel(selectedChannel)} />
+                )}
               </View>
             </View>
           )}

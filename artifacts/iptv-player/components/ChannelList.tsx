@@ -16,19 +16,20 @@ import { ChannelContextMenu } from "@/components/ChannelContextMenu";
 import { Channel, EPGProgram, VODItem, useIPTV } from "@/context/IPTVContext";
 import { useColors } from "@/hooks/useColors";
 
-function nowProgram(channel: Channel) {
+function nowProgram(channel: Channel, stalkerEpg?: EPGProgram[]) {
   const now = Date.now();
-  return channel.epg?.find((p) => p.startTime <= now && p.endTime >= now);
+  const epg = stalkerEpg?.length ? stalkerEpg : (channel.epg ?? []);
+  return epg.find((p) => p.startTime <= now && p.endTime >= now);
 }
 
-function nextProgram(channel: Channel) {
+function nextProgram(channel: Channel, stalkerEpg?: EPGProgram[]) {
   const now = Date.now();
-  const sorted = (channel.epg ?? []).filter((p) => p.startTime > now).sort((a, b) => a.startTime - b.startTime);
-  return sorted[0];
+  const epg = stalkerEpg?.length ? stalkerEpg : (channel.epg ?? []);
+  return epg.filter((p) => p.startTime > now).sort((a, b) => a.startTime - b.startTime)[0];
 }
 
-function progress(channel: Channel) {
-  const prog = nowProgram(channel);
+function progress(channel: Channel, stalkerEpg?: EPGProgram[]) {
+  const prog = nowProgram(channel, stalkerEpg);
   if (!prog) return 0;
   const dur = prog.endTime - prog.startTime;
   const elapsed = Date.now() - prog.startTime;
@@ -59,6 +60,7 @@ export function ChannelList({
     blockedChannels,
     hiddenChannels,
     favoritesOnlyGroups,
+    stalkerEpgData,
   } = useIPTV();
 
   const [contextChannel, setContextChannel] = useState<Channel | null>(null);
@@ -138,8 +140,9 @@ export function ChannelList({
         contentContainerStyle={{ paddingBottom: bottomPad + 8 }}
         renderItem={({ item: channel, index }) => {
           const active = selectedChannel?.id === channel.id;
-          const now = nowProgram(channel);
-          const prog = progress(channel);
+          const stalkerEpg = activePlaylist?.type === "StalkerPortal" ? stalkerEpgData[channel.id] : undefined;
+          const now = nowProgram(channel, stalkerEpg);
+          const prog = progress(channel, stalkerEpg);
           const isFav = favorites.includes(channel.id);
           const isBlocked = blockedChannels.includes(channel.id);
 
